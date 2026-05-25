@@ -33,6 +33,21 @@ dependencies:
     - numpy>=1.26
     - pandas>=2.1
     - scikit-learn>=1.4
+    # Free AI inference (INTL v2.1)
+    - groq>=0.9               # Groq Llama 3 — free, 14,400 req/day
+    - google-generativeai>=0.7 # Gemini Flash — free, 1,500 req/day
+    # Market data (INTL v2.1)
+    - yfinance>=0.2.40        # Yahoo Finance — free, 15-min delayed
+    - vaderSentiment>=3.3     # Rule-based sentiment (no API)
+    # Database / storage (INTL v2.1)
+    - supabase>=2.4           # Supabase PostgreSQL client
+    # Pipeline extras (INTL v2.1)
+    - praw>=7.7               # Reddit API
+    - feedparser>=6.0         # RSS feeds
+    - fear-and-greed>=0.4     # CNN Fear & Greed Index
+    - beautifulsoup4>=4.12    # HTML scraping
+    # Dashboard (INTL v2.1)
+    - streamlit>=1.35         # Streamlit dashboard
     # Dev
     - pytest>=8.0
     - ruff>=0.6               # fast linter + formatter

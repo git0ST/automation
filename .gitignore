@@ -63,5 +63,9 @@ outputs/
 .vscode/settings.json
 *.sublime-project
 
+# ── Streamlit secrets ──────────────────────────
+streamlit/.streamlit/secrets.toml
+.streamlit/secrets.toml
+
 # ── Claude Code local overrides ────────────────
 .claude/settings.local.json

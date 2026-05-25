@@ -571,19 +571,96 @@ async def api_cache_status():
     })
 
 
+@app.post("/api/query")
+async def api_query(payload: dict):
+    """
+    Manager Agent endpoint — natural language query routing.
+    Handles VaR, portfolio risk, technical analysis, regime, briefing, signals, news.
+
+    Body: {"query": "What is the VaR of NVDA?"}
+    """
+    query = (payload.get("query") or "").strip()
+    if not query:
+        return JSONResponse({"error": "query field required"}, status_code=400)
+    try:
+        from agents.manager_agent import handle_query
+        pipeline_cache = _cache["pipeline"].get("data") or {}
+        result = await handle_query(query, pipeline_cache=pipeline_cache)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e), "intent": "error"}, status_code=500)
+
+
 @app.post("/api/summarize")
 async def api_summarize(payload: dict):
+    """Summarise a single news item. Body: {"title": "...", "preview": "..."}"""
     title   = payload.get("title", "")
     preview = payload.get("preview", "")
-    system  = (
-        "You are a concise news analyst. Given a title and content snippet, "
-        "write exactly 2 sentences: what it is and why it matters. Be direct."
-    )
     try:
-        from shared.utils import chat
-        return {"summary": chat(f"Title: {title}\n\nContent: {preview}", system=system)}
+        from agents.research_agent import summarise_item
+        summary = await summarise_item({"title": title, "preview": preview})
+        return {"summary": summary}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/math/var/{ticker}")
+async def api_var(ticker: str, period: str = Query(default="1y")):
+    """
+    Value at Risk for a single ticker.
+    Returns VaR 95/99, CVaR, Sharpe, Sortino, Max Drawdown, Beta.
+    Data: Yahoo Finance (free, 15-min delayed).
+    """
+    try:
+        from agents.math_agent import compute_var
+        result = await compute_var(ticker.upper(), period=period)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e), "ticker": ticker}, status_code=500)
+
+
+@app.post("/api/math/portfolio")
+async def api_portfolio_risk(payload: dict):
+    """
+    Portfolio risk for a list of tickers.
+    Body: {"tickers": ["NVDA","AAPL","MSFT"], "weights": [0.4,0.3,0.3], "period": "1y"}
+    Returns portfolio VaR, individual metrics, correlation matrix.
+    """
+    tickers = payload.get("tickers", [])
+    weights = payload.get("weights")
+    period  = payload.get("period", "1y")
+    if not tickers:
+        return JSONResponse({"error": "tickers required"}, status_code=400)
+    try:
+        from agents.math_agent import compute_portfolio_risk
+        result = await compute_portfolio_risk(tickers[:20], weights=weights, period=period)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/math/technical/{ticker}")
+async def api_technical(ticker: str, period: str = Query(default="6mo")):
+    """
+    Technical indicators: SMA20/50/200, RSI14, trend signal.
+    Data: Yahoo Finance.
+    """
+    try:
+        from agents.math_agent import compute_technical
+        result = await compute_technical(ticker.upper(), period=period)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e), "ticker": ticker}, status_code=500)
+
+
+@app.get("/api/rate-limits")
+async def api_rate_limits():
+    """Debug: current API rate limit usage across all sources."""
+    try:
+        from shared.rate_limiter import rate_limit_status
+        return JSONResponse(rate_limit_status())
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 if __name__ == "__main__":

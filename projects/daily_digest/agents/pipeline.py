@@ -104,27 +104,19 @@ def sentiment_stage(items: list[dict]) -> tuple[list[dict], dict]:
         return items, {}
 
 
-# ── Stage 5: Trend Analysis (Ollama) ──────────────────────────────────────────
+# ── Stage 5: Trend Analysis ────────────────────────────────────────────────────
 
-def analyze_stage(items: list[dict]) -> dict:
+async def analyze_stage(items: list[dict]) -> dict:
+    """Cross-source trend detection via Research Agent (Groq/Gemini/fallback)."""
     try:
-        from shared.utils import chat
-    except ImportError:
-        return {}
-    top = "\n".join(f"[{i['source'].upper()}] {i['title']}" for i in items[:30])
-    system = (
-        "You are an intelligence analyst for a Bloomberg-style terminal. "
-        "Given headlines from tech, AI, science, finance and world news, "
-        "identify the 3 most important CROSS-SOURCE trends right now. "
-        "Be specific, concise, data-driven. Output exactly 3 bullet points."
-    )
-    try:
-        return {"cross_source": chat(top, system=system).strip()}
+        from agents.research_agent import detect_trends
+        trend_text = await detect_trends(items)
+        return {"cross_source": trend_text}
     except Exception:
         return {}
 
 
-# ── Stage 6: Briefing (Ollama) ────────────────────────────────────────────────
+# ── Stage 6: Briefing ─────────────────────────────────────────────────────────
 
 def _time_of_day() -> str:
     h = datetime.now().hour
@@ -134,33 +126,19 @@ def _time_of_day() -> str:
     return "Night"
 
 
-def briefing_stage(items: list[dict], trends: dict, market_items: list[dict],
-                   sentiment: dict) -> str:
+async def briefing_stage(items: list[dict], trends: dict, market_items: list[dict],
+                         sentiment: dict, regime: dict = None, risk: dict = None) -> str:
+    """Generate intelligence briefing via Research Agent (Groq/Gemini/fallback)."""
     try:
-        from shared.utils import chat
-    except ImportError:
-        return _fallback_briefing(items, market_items)
-
-    tod    = _time_of_day()
-    top_10 = "\n".join(
-        f"- [{i['source']}] {i['title']} (score:{i.get('terminal_score',0):.0f}, "
-        f"sentiment:{i.get('sentiment_label','?')})"
-        for i in items[:10]
-    )
-    mkt_snap = ", ".join(m["title"] for m in market_items[:5]) if market_items else "unavailable"
-    sent_txt = (f"Sentiment: {sentiment.get('bullish_pct',0)}% bullish, "
-                f"{sentiment.get('bearish_pct',0)}% bearish")
-
-    system = (
-        f"You are the lead editor of a Bloomberg/Reuters intelligence terminal. "
-        f"Write a crisp {tod} Briefing of 3-4 sentences covering: "
-        f"(1) biggest tech/AI development, (2) market sentiment + key movers, "
-        f"(3) notable research or world news. Authoritative, specific, forward-looking."
-    )
-    prompt = (f"TOP STORIES:\n{top_10}\n\nMARKETS: {mkt_snap}\n\n{sent_txt}\n\n"
-              f"TRENDS:\n{trends.get('cross_source','')}")
-    try:
-        return chat(prompt, system=system).strip()
+        from agents.research_agent import generate_briefing
+        market_flat = [i["market_data"] for i in market_items if i.get("market_data")]
+        return await generate_briefing(
+            items       = items,
+            market_data = market_flat,
+            regime      = regime or {},
+            risk        = risk or {},
+            sentiment   = sentiment,
+        )
     except Exception:
         return _fallback_briefing(items, market_items)
 
@@ -350,10 +328,14 @@ async def run_pipeline(
     trends = {}
     briefing = ""
     if run_ai:
-        print(f"  [6/9] Trend analysis (Ollama)…")
-        trends = analyze_stage(scored)
-        print(f"  [7/9] Briefing generation (Ollama)…")
-        briefing = briefing_stage(scored, trends, market_data, sentiment)
+        print(f"  [6/9] Trend analysis (Groq/Gemini/fallback)…")
+        trends = await analyze_stage(scored)
+        print(f"  [7/9] Briefing generation (Groq/Gemini/fallback)…")
+        briefing = await briefing_stage(
+            scored, trends, market_data, sentiment,
+            regime=intelligence.get("regime"),
+            risk=intelligence.get("risk"),
+        )
     else:
         briefing = _fallback_briefing(scored, market_data)
 

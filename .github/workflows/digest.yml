@@ -10,12 +10,12 @@ on:
   workflow_dispatch:
     inputs:
       run_ai:
-        description: 'Enable Ollama AI analysis (requires Ollama runner)'
+        description: 'Enable AI analysis via Groq (free, requires GROQ_API_KEY secret)'
         required: false
-        default: 'false'
+        default: 'true'
         type: boolean
       sources:
-        description: 'Comma-separated sources (blank = all)'
+        description: 'Comma-separated sources (blank = all 17 sources)'
         required: false
         default: ''
 
@@ -28,7 +28,9 @@ jobs:
       SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       SUPABASE_ANON_KEY:    ${{ secrets.SUPABASE_ANON_KEY }}
-      LLM_PROVIDER:         local
+      GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+      GOOGLE_API_KEY:       ${{ secrets.GOOGLE_API_KEY }}
+      LLM_PROVIDER:         cloud
 
     steps:
       - name: Checkout
@@ -55,7 +57,10 @@ jobs:
             yfinance \
             fear-and-greed \
             beautifulsoup4 \
-            pandas
+            pandas \
+            numpy \
+            groq \
+            google-generativeai
 
       - name: Run intelligence pipeline
         run: |
@@ -84,6 +89,7 @@ jobs:
                   "options":       15, "congress":     15,
                   "finra":         15, "gdelt":        20,
                   "stocktwits":    25, "coingecko":    20,
+                  "credit":         8,
               }
 
               print(f"Running pipeline: {len(sources)} sources, run_ai={run_ai}")
