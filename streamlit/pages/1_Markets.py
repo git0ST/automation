@@ -127,7 +127,11 @@ def main():
             if "+" in str(val): return "color: #22d472"
             if "-" in str(val): return "color: #f75050"
             return ""
-        st.dataframe(df.style.applymap(color_pct, subset=["1D Chg", "1Mo Chg"]), use_container_width=True)
+        # pandas >= 2.1: Styler.applymap removed → use Styler.map
+        styled = df.style.map(color_pct, subset=["1D Chg", "1Mo Chg"]) \
+                 if hasattr(df.style, "map") \
+                 else df.style.applymap(color_pct, subset=["1D Chg", "1Mo Chg"])
+        st.dataframe(styled, use_container_width=True)
 
     st.divider()
 

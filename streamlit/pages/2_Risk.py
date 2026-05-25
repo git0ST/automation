@@ -173,11 +173,23 @@ def main():
         if url and key:
             from supabase import create_client
             client  = create_client(url, key)
-            risk_row = (client.table("risk_scores")
-                       .select("*")
-                       .order("captured_at", desc=True)
-                       .limit(1)
-                       .execute()).data
+            try:
+                risk_row = (client.table("risk_scores")
+                           .select("*")
+                           .order("captured_at", desc=True)
+                           .limit(1)
+                           .execute()).data
+            except Exception as e:
+                msg = str(e)
+                if "risk_scores" in msg and "schema cache" in msg:
+                    st.error(
+                        "⚠ The `risk_scores` table does not exist in Supabase. "
+                        "Run **`supabase/migrations/003_intelligence_tables.sql`** in the Supabase SQL editor.\n\n"
+                        "Direct link: https://supabase.com/dashboard/project/jptwbvigtgiffjqnctic/sql/new"
+                    )
+                else:
+                    st.warning(f"Could not load risk data: {e}")
+                return
             if risk_row:
                 r = risk_row[0]
                 srs   = r.get("srs", 0)

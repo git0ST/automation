@@ -51,7 +51,11 @@ def load_positions():
                 .select("*")
                 .order("created_at", desc=True)
                 .execute()).data or []
-    except Exception:
+    except Exception as e:
+        msg = str(e)
+        if "portfolio_positions" in msg and "schema cache" in msg:
+            # Surface a clear, actionable error — not silent failure
+            st.session_state["__portfolio_table_missing"] = True
         return []
 
 
@@ -71,7 +75,13 @@ def save_position(ticker, shares, avg_cost, notes=""):
         }, on_conflict="ticker").execute()
         return True
     except Exception as e:
-        st.error(f"Save error: {e}")
+        msg = str(e)
+        if "portfolio_positions" in msg and "schema cache" in msg:
+            st.error("⚠ The `portfolio_positions` table does not exist in your Supabase project. "
+                     "Run migration **`supabase/migrations/004_portfolio_cache_tables.sql`** in the "
+                     "Supabase SQL editor first.")
+        else:
+            st.error(f"Save error: {e}")
         return False
 
 
@@ -95,41 +105,51 @@ def main():
         return
 
     tab_positions, tab_add, tab_risk = st.tabs(["📋 My Positions", "➕ Add Position", "🎯 Risk Report"])
+    _render_positions_tab(tab_positions)
+    _render_add_tab(tab_add)
+    _render_risk_tab(tab_risk)
 
-    # ── Positions tab ──────────────────────────────────────────────────────
-    with tab_positions:
+
+def _render_positions_tab(tab):
+    """Positions tab — empty state shows clear onboarding, populated shows P&L table."""
+    with tab:
         positions = load_positions()
-        if not positions:
-            st.info("No positions saved yet. Add positions in the '➕ Add Position' tab.")
+
+        # Show schema-missing banner if applicable (set by load_positions on failure)
+        if st.session_state.pop("__portfolio_table_missing", False):
+            st.error(
+                "⚠ The `portfolio_positions` table does not exist in your Supabase project. "
+                "Run **`supabase/migrations/004_portfolio_cache_tables.sql`** in the Supabase SQL editor first.\n\n"
+                "Direct link: https://supabase.com/dashboard/project/jptwbvigtgiffjqnctic/sql/new"
+            )
             return
 
-        # Fetch current prices
+        if not positions:
+            st.info("📭 **No positions saved yet.** Click the **➕ Add Position** tab above to add your first holding.")
+            with st.expander("ℹ️ Quick start guide", expanded=True):
+                st.markdown("""
+                1. Click the **➕ Add Position** tab
+                2. Enter a ticker (e.g. `NVDA`, `BTC-USD`, `SPY`)
+                3. Enter shares and average cost
+                4. Click **Save Position**
+                5. Return here to see live P&L tracking
+                """)
+            return
+
+        # Fetch current prices — batched
         tickers = tuple(p["ticker"] for p in positions)
-        with st.spinner("Fetching live prices…"):
-            try:
-                import yfinance as yf
-                prices = {}
-                for ticker in tickers:
-                    try:
-                        t = yf.Ticker(ticker)
-                        h = t.history(period="2d", interval="1d", auto_adjust=True)
-                        if not h.empty:
-                            prices[ticker] = round(h["Close"].iloc[-1], 2)
-                    except Exception:
-                        pass
-            except Exception:
-                prices = {}
+        prices = _fetch_prices(tickers)
 
         # Build P&L table
         import pandas as pd
         rows = []
-        total_cost  = 0
-        total_value = 0
+        total_cost  = 0.0
+        total_value = 0.0
         for p in positions:
-            ticker    = p["ticker"]
-            shares    = p.get("shares", 0)
-            avg_cost  = p.get("avg_cost", 0)
-            curr_px   = prices.get(ticker, avg_cost)
+            ticker     = p["ticker"]
+            shares     = float(p.get("shares") or 0)
+            avg_cost   = float(p.get("avg_cost") or 0)
+            curr_px    = prices.get(ticker, avg_cost)
             cost_basis = shares * avg_cost
             mkt_value  = shares * curr_px
             pnl        = mkt_value - cost_basis
@@ -137,81 +157,102 @@ def main():
             total_cost  += cost_basis
             total_value += mkt_value
             rows.append({
-                "Ticker":    ticker,
-                "Shares":    shares,
-                "Avg Cost":  f"${avg_cost:,.2f}",
-                "Curr Price":f"${curr_px:,.2f}",
-                "Cost Basis":f"${cost_basis:,.0f}",
-                "Mkt Value": f"${mkt_value:,.0f}",
-                "P&L":       f"${pnl:+,.0f}",
-                "P&L %":     f"{pnl_pct:+.2f}%",
-                "Notes":     p.get("notes", ""),
+                "Ticker":     ticker,
+                "Shares":     shares,
+                "Avg Cost":   f"${avg_cost:,.2f}",
+                "Curr Price": f"${curr_px:,.2f}",
+                "Cost Basis": f"${cost_basis:,.0f}",
+                "Mkt Value":  f"${mkt_value:,.0f}",
+                "P&L":        f"${pnl:+,.0f}",
+                "P&L %":      f"{pnl_pct:+.2f}%",
+                "Notes":      p.get("notes", "") or "",
             })
 
         df = pd.DataFrame(rows).set_index("Ticker")
+
         def color_pnl(val):
             if isinstance(val, str) and "+" in val: return "color: #22d472"
             if isinstance(val, str) and "-" in val: return "color: #f75050"
             return ""
-        st.dataframe(df.style.applymap(color_pnl, subset=["P&L", "P&L %"]), use_container_width=True)
 
+        # pandas >= 2.1: Styler.applymap removed → use Styler.map
+        styled = df.style.map(color_pnl, subset=["P&L", "P&L %"]) \
+                 if hasattr(df.style, "map") \
+                 else df.style.applymap(color_pnl, subset=["P&L", "P&L %"])
+        st.dataframe(styled, use_container_width=True)
+
+        # Totals row
         total_pnl = total_value - total_cost
         total_pct = (total_pnl / total_cost * 100) if total_cost else 0
         c1, c2, c3 = st.columns(3)
-        with c1: st.metric("Total Cost Basis", f"${total_cost:,.0f}")
+        with c1: st.metric("Total Cost Basis",  f"${total_cost:,.0f}")
         with c2: st.metric("Total Market Value", f"${total_value:,.0f}")
         with c3:
             delta_c = "normal" if total_pnl >= 0 else "inverse"
-            st.metric("Total P&L", f"${total_pnl:+,.0f}", delta=f"{total_pct:+.2f}%", delta_color=delta_c)
+            st.metric("Total P&L", f"${total_pnl:+,.0f}",
+                      delta=f"{total_pct:+.2f}%", delta_color=delta_c)
+
+        st.divider()
 
         # Delete position
-        del_ticker = st.selectbox("Remove position", ["—"] + [p["ticker"] for p in positions])
-        if st.button("Delete selected position", type="secondary") and del_ticker != "—":
-            if delete_position(del_ticker):
-                st.success(f"Removed {del_ticker}")
-                load_positions.clear()
-                st.rerun()
+        with st.expander("🗑️ Remove a position"):
+            del_ticker = st.selectbox("Position to remove", ["—"] + [p["ticker"] for p in positions])
+            if st.button("Delete selected position", type="secondary") and del_ticker != "—":
+                if delete_position(del_ticker):
+                    st.success(f"Removed {del_ticker}")
+                    load_positions.clear()
+                    st.rerun()
 
-    # ── Add position tab ───────────────────────────────────────────────────
-    with tab_add:
-        st.subheader("Add / Update Position")
-        with st.form("add_position"):
+
+def _render_add_tab(tab):
+    """Add Position tab — form to save a new position."""
+    with tab:
+        st.subheader("➕ Add / Update Position")
+        st.caption("Enter ticker (Yahoo Finance symbol — `NVDA`, `BTC-USD`, `SPY`), shares, and average cost.")
+
+        with st.form("add_position", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
-            with col1: new_ticker = st.text_input("Ticker", placeholder="NVDA").upper()
-            with col2: new_shares = st.number_input("Shares", min_value=0.0001, value=10.0, step=0.001, format="%.4f")
-            with col3: new_cost   = st.number_input("Average Cost ($)", min_value=0.01, value=100.0, step=0.01)
+            with col1:
+                new_ticker = st.text_input("Ticker", placeholder="NVDA").upper()
+            with col2:
+                new_shares = st.number_input("Shares", min_value=0.0001, value=10.0,
+                                             step=0.001, format="%.4f")
+            with col3:
+                new_cost = st.number_input("Average Cost ($)", min_value=0.01,
+                                           value=100.0, step=0.01)
             new_notes = st.text_input("Notes (optional)", placeholder="Long-term AI play")
-            submitted = st.form_submit_button("Save Position", use_container_width=True)
+            submitted = st.form_submit_button("💾 Save Position", use_container_width=True, type="primary")
+
             if submitted and new_ticker:
                 if save_position(new_ticker, new_shares, new_cost, new_notes):
-                    st.success(f"Saved {new_ticker}: {new_shares} shares @ ${new_cost:.2f}")
+                    st.success(f"✓ Saved {new_ticker}: {new_shares} shares @ ${new_cost:.2f}")
                     load_positions.clear()
+                    st.balloons()
 
-    # ── Risk report tab ────────────────────────────────────────────────────
-    with tab_risk:
+
+def _render_risk_tab(tab):
+    """Risk Report tab — portfolio VaR + correlation analysis."""
+    with tab:
         positions = load_positions()
         if not positions:
-            st.info("Add positions first.")
+            st.info("Add at least one position first (use the **➕ Add Position** tab).")
             return
 
         tickers = [p["ticker"] for p in positions]
         shares_map = {p["ticker"]: p.get("shares", 0) for p in positions}
 
-        # Equal weight vs actual position weight
-        weight_mode = st.radio("Portfolio weights", ["By position size (shares × cost)", "Equal weight"])
+        st.markdown(f"**Portfolio:** {', '.join(tickers)} ({len(tickers)} positions)")
 
-        if st.button("Run Risk Report", use_container_width=True):
+        weight_mode = st.radio(
+            "Portfolio weights",
+            ["By position size (shares × cost)", "Equal weight"],
+            horizontal=True,
+        )
+
+        if st.button("📊 Run Risk Report", use_container_width=True, type="primary"):
             weights = None
             if weight_mode == "By position size (shares × cost)":
-                import yfinance as yf
-                prices = {}
-                for t in tickers:
-                    try:
-                        obj = yf.Ticker(t)
-                        h = obj.history(period="2d", auto_adjust=True)
-                        prices[t] = h["Close"].iloc[-1] if not h.empty else 0
-                    except Exception:
-                        prices[t] = 0
+                prices = _fetch_prices(tuple(tickers))
                 values = [shares_map[t] * prices.get(t, 0) for t in tickers]
                 total  = sum(values)
                 weights = [v / total for v in values] if total > 0 else None
@@ -220,8 +261,10 @@ def main():
                 import asyncio
                 from agents.math_agent import compute_portfolio_risk
                 loop = asyncio.new_event_loop()
-                result = loop.run_until_complete(compute_portfolio_risk(tickers, weights=weights))
-                loop.close()
+                try:
+                    result = loop.run_until_complete(compute_portfolio_risk(tickers, weights=weights))
+                finally:
+                    loop.close()
 
             if "error" in result:
                 st.error(result["error"])
@@ -229,24 +272,67 @@ def main():
 
             p = result.get("portfolio", {})
             c1, c2, c3 = st.columns(3)
-            with c1: st.metric("Portfolio VaR 95%", f"{p.get('var_95',0):.2f}%", delta="1-day historical")
+            with c1: st.metric("Portfolio VaR 95%",  f"{p.get('var_95',0):.2f}%",  delta="1-day historical")
             with c2: st.metric("Portfolio CVaR 95%", f"{p.get('cvar_95',0):.2f}%", delta="Expected Shortfall")
-            with c3: st.metric("Portfolio Sharpe",  f"{p.get('sharpe',0):.3f}", delta=f"Vol: {p.get('annualised_vol',0):.1f}% ann.")
+            with c3: st.metric("Portfolio Sharpe",   f"{p.get('sharpe',0):.3f}",
+                               delta=f"Vol: {p.get('annualised_vol',0):.1f}% ann.")
 
             import pandas as pd
             ind = result.get("individual", [])
             if ind:
-                df = pd.DataFrame([r for r in ind if "error" not in r])
-                df["weight"] = df["weight"].apply(lambda x: f"{x:.1%}")
-                st.dataframe(df.set_index("ticker"), use_container_width=True)
+                with st.expander("📋 Individual Holdings Risk", expanded=True):
+                    df = pd.DataFrame([r for r in ind if "error" not in r])
+                    if "weight" in df.columns:
+                        df["weight"] = df["weight"].apply(lambda x: f"{x:.1%}")
+                    st.dataframe(df.set_index("ticker"), use_container_width=True)
 
             corr = result.get("correlation")
             if corr and len(corr) > 1:
-                st.subheader("Correlation Matrix")
-                st.dataframe(
-                    pd.DataFrame(corr).round(3).style.background_gradient(cmap="RdYlGn", vmin=-1, vmax=1),
-                    use_container_width=True,
-                )
+                with st.expander("🔥 Correlation Matrix", expanded=True):
+                    st.dataframe(
+                        pd.DataFrame(corr).round(3).style.background_gradient(
+                            cmap="RdYlGn", vmin=-1, vmax=1),
+                        use_container_width=True,
+                    )
+                    st.caption("Values near 1 = highly correlated (less diversification). "
+                               "Values near -1 = inverse correlation.")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_prices(tickers: tuple) -> dict:
+    """Batched yfinance fetch — single API call for all tickers."""
+    if not tickers:
+        return {}
+    try:
+        import yfinance as yf
+        prices = {}
+        try:
+            batch = yf.download(
+                list(tickers), period="2d", interval="1d",
+                auto_adjust=True, progress=False, group_by="ticker", threads=True,
+            )
+            for ticker in tickers:
+                try:
+                    if len(tickers) > 1 and ticker in batch.columns.get_level_values(0):
+                        sub = batch[ticker].dropna()
+                    else:
+                        sub = batch.dropna()
+                    if not sub.empty:
+                        prices[ticker] = round(float(sub["Close"].iloc[-1]), 2)
+                except Exception:
+                    pass
+        except Exception:
+            # Fallback: per-ticker
+            for ticker in tickers:
+                try:
+                    h = yf.Ticker(ticker).history(period="2d", interval="1d", auto_adjust=True)
+                    if not h.empty:
+                        prices[ticker] = round(float(h["Close"].iloc[-1]), 2)
+                except Exception:
+                    pass
+        return prices
+    except Exception:
+        return {}
 
 
 main()

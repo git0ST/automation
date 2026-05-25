@@ -171,26 +171,33 @@ def load_pipeline_data():
 
 @st.cache_data(ttl=60, show_spinner=False)  # cache 1 min
 def load_regime_risk():
-    """Load latest regime + risk from Supabase."""
+    """Load latest regime + risk from Supabase. Returns (regime, risk, missing_tables)."""
     client = get_supabase()
     if not client:
-        return {}, {}
+        return {}, {}, []
+
+    missing = []
+    regime, risk = {}, {}
+
     try:
-        regime_row = (client.table("regime_snapshots")
-                      .select("*")
-                      .order("captured_at", desc=True)
-                      .limit(1)
-                      .execute()).data
-        risk_row   = (client.table("risk_scores")
-                      .select("*")
-                      .order("captured_at", desc=True)
-                      .limit(1)
-                      .execute()).data
-        regime = regime_row[0] if regime_row else {}
-        risk   = risk_row[0]   if risk_row   else {}
-        return regime, risk
-    except Exception:
-        return {}, {}
+        rows = (client.table("regime_snapshots")
+                .select("*").order("captured_at", desc=True).limit(1)
+                .execute()).data
+        regime = rows[0] if rows else {}
+    except Exception as e:
+        if "regime_snapshots" in str(e) and "schema cache" in str(e):
+            missing.append("regime_snapshots")
+
+    try:
+        rows = (client.table("risk_scores")
+                .select("*").order("captured_at", desc=True).limit(1)
+                .execute()).data
+        risk = rows[0] if rows else {}
+    except Exception as e:
+        if "risk_scores" in str(e) and "schema cache" in str(e):
+            missing.append("risk_scores")
+
+    return regime, risk, missing
 
 
 @st.cache_data(ttl=600, show_spinner=False)  # 10-min cache (Yahoo = 15-min delay)
@@ -301,7 +308,7 @@ def render_sidebar(regime, risk):
 # ── Main overview page ────────────────────────────────────────────────────────
 
 def main():
-    regime, risk = load_regime_risk()
+    regime, risk, missing_tables = load_regime_risk()
     render_sidebar(regime, risk)
 
     # Header with refresh button
@@ -316,6 +323,16 @@ def main():
             load_regime_risk.clear()
             load_market_prices.clear()
             st.rerun()
+
+    # ── Setup warning if Supabase migrations not run ────────────────────────
+    if missing_tables:
+        st.warning(
+            f"⚠ **Supabase tables missing:** `{', '.join(missing_tables)}` — "
+            "run **`supabase/migrations/003_intelligence_tables.sql`** in the "
+            "[Supabase SQL editor](https://supabase.com/dashboard/project/jptwbvigtgiffjqnctic/sql/new) "
+            "to enable regime + risk tracking.",
+            icon="⚠️",
+        )
 
     st.divider()
 
@@ -366,11 +383,12 @@ def main():
         mkt = load_market_prices(WATCHLIST)
 
     if mkt:
-        # 8 cards per row for clean grid
-        items = list(mkt.items())
-        for row_start in range(0, len(items), 8):
-            row_items = items[row_start:row_start + 8]
-            cols = st.columns(len(row_items))
+        # 4 cards per row — each tile wide enough for full prices ($72,345.67)
+        mkt_items = list(mkt.items())
+        COLS_PER_ROW = 4
+        for row_start in range(0, len(mkt_items), COLS_PER_ROW):
+            row_items = mkt_items[row_start:row_start + COLS_PER_ROW]
+            cols = st.columns(COLS_PER_ROW)
             for col, (ticker, d) in zip(cols, row_items):
                 with col:
                     delta_color = "normal" if d["change_pct"] >= 0 else "inverse"
@@ -406,23 +424,25 @@ def main():
 
     st.divider()
 
-    # ── Top news (expandable — show 25 by default, collapsible) ──────────────
-    if items:
-        # Two-column layout: Top news on left, signals + briefing on right
+    # ── Top news (expandable — defensive against non-dict items) ─────────────
+    # Filter to only dict entries — Supabase/FastAPI may return mixed types
+    dict_items = [it for it in items if isinstance(it, dict)]
+
+    if dict_items:
         col_news, col_side = st.columns([3, 2])
 
         with col_news:
-            with st.expander(f"📰 Top Intelligence Feed ({len(items)} items)", expanded=True):
-                for it in items[:25]:
-                    sent = it.get("sentiment_label", "neutral")
+            with st.expander(f"📰 Top Intelligence Feed ({len(dict_items)} items)", expanded=True):
+                for it in dict_items[:25]:
+                    sent = it.get("sentiment_label") or "neutral"
                     sentiment_icon = "▲" if sent == "bullish" else \
                                      "▼" if sent == "bearish" else "·"
                     sent_color = "#22d472" if sent == "bullish" else \
                                  "#f75050" if sent == "bearish" else "#888"
                     src = (it.get("source") or "?").upper()[:4]
-                    title = it.get("title", "—")
-                    url   = it.get("url", "#")
-                    score = it.get("terminal_score", 0)
+                    title = it.get("title", "—") or "—"
+                    url   = it.get("url", "#") or "#"
+                    score = it.get("terminal_score") or 0
                     st.markdown(
                         f"<span style='color:{sent_color};font-weight:700'>{sentiment_icon}</span> "
                         f"`{src}` [{title[:90]}]({url}) "
@@ -435,7 +455,7 @@ def main():
 
         with col_side:
             # Signals panel
-            sig_data = data.get("signals", [])
+            sig_data = [s for s in data.get("signals", []) if isinstance(s, dict)]
             if sig_data:
                 with st.expander(f"⚡ Active Signals ({len(sig_data)})", expanded=True):
                     src_label_map = {
@@ -444,22 +464,22 @@ def main():
                     }
                     for sig in sig_data[:15]:
                         s_label = src_label_map.get(sig.get("source"), (sig.get("source") or "?").upper())
-                        s_sent = sig.get("sentiment_label", "neutral")
+                        s_sent = sig.get("sentiment_label") or "neutral"
                         s_icon = "▲" if s_sent == "bullish" else "▼" if s_sent == "bearish" else "—"
                         s_color = "#22d472" if s_sent == "bullish" else "#f75050" if s_sent == "bearish" else "#888"
                         st.markdown(
                             f"<span style='color:{s_color}'>{s_icon}</span> "
-                            f"`{s_label}` {sig.get('title','—')[:55]}",
+                            f"`{s_label}` {(sig.get('title') or '—')[:55]}",
                             unsafe_allow_html=True,
                         )
 
             # Briefing
             briefing = data.get("briefing", "")
-            if briefing:
+            if briefing and isinstance(briefing, str):
                 with st.expander("📋 Intelligence Briefing", expanded=True):
                     st.info(briefing)
     else:
-        st.info("Connect to FastAPI backend or Supabase to load news feed.")
+        st.info("No news items yet. Run the pipeline (`gh workflow run digest.yml`) to populate the feed.")
 
 
 if __name__ == "__main__":
