@@ -2,12 +2,31 @@
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# ── Path setup ──────────────────────────────────────────────────────────────
+ROOT = Path(__file__).resolve().parent.parent.parent
+for p in (ROOT, ROOT / "projects" / "daily_digest"):
+    sp = str(p)
+    if sp not in sys.path:
+        sys.path.insert(0, sp)
 
 import streamlit as st
 import os
 
 st.set_page_config(page_title="Risk & VaR · INTL", page_icon="🎯", layout="wide")
+
+# ── Polish CSS ──────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+.block-container { padding-top: 2rem; padding-bottom: 3rem; }
+hr { margin: 1.5rem 0 !important; border-color: #1a1b2e !important; }
+.stExpander { background: #0c0c18 !important; border: 1px solid #1a1b2e !important;
+              border-radius: 8px !important; margin-bottom: 0.8rem !important; }
+div[data-testid="stMetric"] { margin-bottom: 0.8rem; }
+.stDataFrame { margin: 0.8rem 0; }
+section.main h3 { margin-top: 1.5rem !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 def main():

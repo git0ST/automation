@@ -2,16 +2,38 @@
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# ── Path setup — make both repo-root and projects/daily_digest importable ───
+ROOT = Path(__file__).resolve().parent.parent.parent
+for p in (ROOT, ROOT / "projects" / "daily_digest"):
+    sp = str(p)
+    if sp not in sys.path:
+        sys.path.insert(0, sp)
 
 import streamlit as st
 import os
 
 st.set_page_config(page_title="AI Research · INTL", page_icon="🔬", layout="wide")
 
+# ── Polish CSS: section gaps, expandable cards, smooth dividers ─────────────
+st.markdown("""
+<style>
+.block-container { padding-top: 2rem; padding-bottom: 3rem; }
+section.main > div.block-container { gap: 1.2rem; }
+hr { margin: 1.5rem 0 !important; border-color: #1a1b2e !important; }
+.stExpander { background: #0c0c18 !important; border: 1px solid #1a1b2e !important;
+              border-radius: 8px !important; margin-bottom: 0.8rem !important; }
+.stExpander > details > summary { font-weight: 600; padding: 0.6rem 1rem !important; }
+div[data-testid="stMetric"] { margin-bottom: 0.8rem; }
+div[data-testid="stVerticalBlock"] > div { margin-bottom: 0.6rem; }
+.stTabs [data-baseweb="tab-list"] { gap: 8px; }
+.stTabs [data-baseweb="tab"] { padding: 0.5rem 1rem; }
+</style>
+""", unsafe_allow_html=True)
 
-@st.cache_data(ttl=300)
-def load_news_from_supabase(limit=50):
+
+@st.cache_data(ttl=180)   # 3 min — keep feed fresh
+def load_news_from_supabase(limit=100):  # max out the news feed
     try:
         url = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
         key = st.secrets.get("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
@@ -28,8 +50,8 @@ def load_news_from_supabase(limit=50):
         return []
 
 
-@st.cache_data(ttl=300)
-def load_signals_from_supabase(limit=20):
+@st.cache_data(ttl=180)
+def load_signals_from_supabase(limit=40):  # more signals per refresh
     try:
         url = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
         key = st.secrets.get("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
@@ -47,8 +69,17 @@ def load_signals_from_supabase(limit=20):
 
 
 def main():
-    st.title("🔬 AI Research")
-    st.caption("Powered by Groq (Llama 3) · Free tier · <200ms response time")
+    col_title, col_refresh = st.columns([6, 1])
+    with col_title:
+        st.title("🔬 AI Research")
+        st.caption("Powered by Groq (Llama 3) · Free tier · <200ms response time")
+    with col_refresh:
+        st.write("")
+        if st.button("🔄 Refresh", use_container_width=True):
+            load_news_from_supabase.clear()
+            load_signals_from_supabase.clear()
+            st.rerun()
+    st.divider()
 
     from shared.groq_client import is_ai_available, ai_provider_name
     if is_ai_available():
