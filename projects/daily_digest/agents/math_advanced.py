@@ -159,13 +159,248 @@ def portfolio_var_ewma(returns_matrix: np.ndarray,
 
 def stress_var(returns: list[float] | np.ndarray,
                stress_multiplier: float = 1.5) -> float:
-    """Stress-tested VaR — scale historical vol by a stress multiplier.
-
-    Used to express "what if vol were 50% higher than recent history?"
-    Common in Aladdin scenario panels (multiplier=1.5 ≈ 2008/2020 regimes).
-    """
+    """Stress-tested VaR — scale historical vol by a stress multiplier."""
     r = np.asarray(returns, dtype=float)
     if len(r) < 30:
         return 0.0
     stressed = r * stress_multiplier
     return float(-np.percentile(stressed, 5) * 100)
+
+
+# ── GARCH(1,1) volatility forecast ───────────────────────────────────────────
+
+def garch_11_forecast(returns: list[float] | np.ndarray,
+                      horizon: int = 1) -> dict:
+    """GARCH(1,1) volatility forecast — Bollerslev (1986).
+
+    σ²_t = ω + α·r²_{t-1} + β·σ²_{t-1}
+
+    Fits the model via MLE then forecasts h-step-ahead conditional variance.
+    Better than EWMA for multi-step forecasts; captures mean-reversion to
+    long-run vol level.
+
+    Returns:
+        omega, alpha, beta — fitted parameters
+        long_run_vol       — unconditional vol = sqrt(ω / (1 − α − β))
+        forecast_vol       — h-step forecasted daily vol
+        persistence        — α + β (≈1 means highly persistent)
+    """
+    r = np.asarray(returns, dtype=float)
+    n = len(r)
+    if n < 60:
+        return {"error": "Need ≥60 observations for GARCH"}
+
+    r = r - r.mean()
+    var_uncond = float(r.var())
+
+    def neg_log_likelihood(params):
+        omega, alpha, beta = params
+        if omega <= 0 or alpha < 0 or beta < 0 or alpha + beta >= 1:
+            return 1e10
+        sigma2 = np.zeros(n)
+        sigma2[0] = var_uncond
+        for t in range(1, n):
+            sigma2[t] = omega + alpha * r[t-1]**2 + beta * sigma2[t-1]
+        ll = -0.5 * np.sum(np.log(2 * np.pi * sigma2) + r**2 / sigma2)
+        return -ll
+
+    try:
+        from scipy.optimize import minimize
+        x0 = [var_uncond * 0.05, 0.05, 0.90]
+        result = minimize(
+            neg_log_likelihood, x0,
+            method="L-BFGS-B",
+            bounds=[(1e-8, None), (1e-6, 0.5), (1e-6, 0.999)],
+        )
+        omega, alpha, beta = result.x
+    except Exception as e:
+        return {"error": f"GARCH fit failed: {e}"}
+
+    persistence = alpha + beta
+    long_run_var = omega / (1 - persistence) if persistence < 1 else var_uncond
+    long_run_vol = float(np.sqrt(long_run_var))
+
+    # Iterate forward h steps
+    sigma2 = np.zeros(n)
+    sigma2[0] = var_uncond
+    for t in range(1, n):
+        sigma2[t] = omega + alpha * r[t-1]**2 + beta * sigma2[t-1]
+
+    last_sigma2 = sigma2[-1]
+    last_r2     = r[-1]**2
+    forecast_var = omega + alpha * last_r2 + beta * last_sigma2
+    for _ in range(horizon - 1):
+        forecast_var = omega + (alpha + beta) * forecast_var
+
+    return {
+        "omega":         round(float(omega), 8),
+        "alpha":         round(float(alpha), 4),
+        "beta":          round(float(beta), 4),
+        "persistence":   round(float(persistence), 4),
+        "long_run_vol":  round(long_run_vol, 6),
+        "forecast_vol":  round(float(np.sqrt(forecast_var)), 6),
+        "horizon":       horizon,
+        "method":        "GARCH(1,1) MLE",
+    }
+
+
+# ── Risk Parity allocation ───────────────────────────────────────────────────
+
+def risk_parity_weights(cov_matrix: np.ndarray,
+                        max_iter: int = 200,
+                        tol: float = 1e-8) -> np.ndarray:
+    """Equal Risk Contribution (Risk Parity) portfolio weights.
+
+    Maillard, Roncalli, Teïletche (2010). Each asset contributes equally
+    to total portfolio risk — robust to estimation error vs Markowitz.
+
+    Solves: minimize Σᵢ (RCᵢ − RC̄)² where RCᵢ = wᵢ·(Σw)ᵢ / √(w'Σw)
+    via fixed-point iteration.
+    """
+    Sigma = np.asarray(cov_matrix, dtype=float)
+    n = Sigma.shape[0]
+    w = np.ones(n) / n
+
+    for _ in range(max_iter):
+        port_vol = np.sqrt(w @ Sigma @ w)
+        if port_vol < 1e-12:
+            break
+        marginal = Sigma @ w / port_vol
+        risk_contribs = w * marginal
+        target_rc = port_vol / n
+        # Newton-like update
+        w_new = w * target_rc / (risk_contribs + 1e-12)
+        w_new = w_new / w_new.sum()
+        if np.abs(w_new - w).max() < tol:
+            w = w_new
+            break
+        w = w_new
+
+    return w
+
+
+# ── Black-Litterman portfolio construction ───────────────────────────────────
+
+def black_litterman(market_caps: np.ndarray,
+                    cov_matrix: np.ndarray,
+                    views_P: np.ndarray | None = None,
+                    views_Q: np.ndarray | None = None,
+                    views_omega: np.ndarray | None = None,
+                    risk_aversion: float = 2.5,
+                    tau: float = 0.025) -> dict:
+    """Black-Litterman expected returns + posterior covariance.
+
+    Combines (a) implied equilibrium returns from market caps with
+    (b) investor views to produce regularised expected returns that don't
+    over-fit historical means.
+
+    Args:
+        market_caps  : (N,) market cap weights of universe
+        cov_matrix   : (N, N) prior covariance (use Ledoit-Wolf for stability)
+        views_P      : (K, N) view matrix — each row specifies an absolute or
+                       relative view (e.g. [1, 0, -1, 0] = "asset 0 outperforms asset 2")
+        views_Q      : (K,) view returns (e.g. [0.02] = "2% outperformance")
+        views_omega  : (K, K) view uncertainty (diagonal). If None, computed
+                       from tau·P·Σ·P'
+        risk_aversion: Sharpe-ratio implied; 2-3 typical for equities
+        tau          : scaling factor (0.025 = 2.5% as common default)
+
+    Returns dict with posterior expected returns, posterior covariance,
+    optimal weights (mean-variance).
+    """
+    mkt_w = np.asarray(market_caps, dtype=float)
+    mkt_w = mkt_w / mkt_w.sum()
+    Sigma = np.asarray(cov_matrix, dtype=float)
+
+    # Equilibrium implied returns: Π = λ·Σ·w_mkt
+    pi = risk_aversion * Sigma @ mkt_w
+
+    if views_P is None or views_Q is None:
+        # No views — return equilibrium
+        return {
+            "expected_returns":     pi.tolist(),
+            "posterior_covariance": Sigma.tolist(),
+            "optimal_weights":      mkt_w.tolist(),
+            "method":               "Black-Litterman (no views)",
+        }
+
+    P = np.asarray(views_P, dtype=float)
+    Q = np.asarray(views_Q, dtype=float)
+    if views_omega is None:
+        Omega = np.diag(np.diag(tau * P @ Sigma @ P.T))
+    else:
+        Omega = np.asarray(views_omega, dtype=float)
+
+    tau_Sigma = tau * Sigma
+    try:
+        # Posterior: E[R] = [(τΣ)⁻¹ + P'Ω⁻¹P]⁻¹ · [(τΣ)⁻¹Π + P'Ω⁻¹Q]
+        inv_tau_sigma = np.linalg.inv(tau_Sigma)
+        inv_omega     = np.linalg.inv(Omega)
+        M_inv = inv_tau_sigma + P.T @ inv_omega @ P
+        M = np.linalg.inv(M_inv)
+        posterior_returns = M @ (inv_tau_sigma @ pi + P.T @ inv_omega @ Q)
+        posterior_cov     = Sigma + M  # Meucci formulation
+        # Optimal weights via MV
+        opt_w = np.linalg.solve(risk_aversion * posterior_cov, posterior_returns)
+        opt_w = np.clip(opt_w, 0, None)
+        opt_w = opt_w / opt_w.sum() if opt_w.sum() > 0 else mkt_w
+    except np.linalg.LinAlgError as e:
+        return {"error": f"Singular matrix in Black-Litterman: {e}"}
+
+    return {
+        "expected_returns":     posterior_returns.tolist(),
+        "posterior_covariance": posterior_cov.tolist(),
+        "optimal_weights":      opt_w.tolist(),
+        "equilibrium_returns":  pi.tolist(),
+        "method":               "Black-Litterman with views",
+    }
+
+
+# ── Filtered Historical Simulation VaR ───────────────────────────────────────
+
+def fhs_var(returns: list[float] | np.ndarray,
+            confidence: float = 0.95,
+            simulations: int = 5000) -> dict:
+    """Filtered Historical Simulation VaR — Barone-Adesi, Giannopoulos (2002).
+
+    Standardize returns by GARCH conditional vol, then resample standardized
+    residuals and rescale by current vol. Captures fat tails + current regime.
+    More robust than plain historical VaR when vol regime is changing.
+    """
+    r = np.asarray(returns, dtype=float)
+    if len(r) < 60:
+        return {"error": "Need ≥60 observations for FHS"}
+
+    garch = garch_11_forecast(r.tolist(), horizon=1)
+    if "error" in garch:
+        return garch
+
+    # Reconstruct conditional vols from GARCH
+    omega, alpha, beta = garch["omega"], garch["alpha"], garch["beta"]
+    r_centered = r - r.mean()
+    sigma2 = np.zeros(len(r))
+    sigma2[0] = r_centered.var()
+    for t in range(1, len(r)):
+        sigma2[t] = omega + alpha * r_centered[t-1]**2 + beta * sigma2[t-1]
+    sigma = np.sqrt(sigma2)
+
+    # Standardized residuals
+    z = r_centered / sigma
+
+    # Resample residuals, rescale by forecast vol
+    forecast_vol = garch["forecast_vol"]
+    rng = np.random.default_rng(seed=42)
+    bootstrapped_z = rng.choice(z, size=simulations, replace=True)
+    simulated_returns = bootstrapped_z * forecast_vol
+
+    var_pct  = float(-np.percentile(simulated_returns, (1 - confidence) * 100) * 100)
+    cvar_pct = float(-simulated_returns[simulated_returns <= np.percentile(simulated_returns, (1 - confidence) * 100)].mean() * 100)
+
+    return {
+        "var_fhs":      round(var_pct, 4),
+        "cvar_fhs":     round(cvar_pct, 4),
+        "garch":        garch,
+        "n_simulated":  simulations,
+        "method":       "Filtered Historical Simulation",
+    }
+

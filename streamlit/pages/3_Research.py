@@ -221,18 +221,44 @@ def _render_signals_tab():
 
 
 def _render_custom_query_tab():
-    """Manager Agent — natural language query routing."""
-    st.markdown("#### 🤖 Manager Agent")
-    st.caption("Ask any market question — routes to math/research/regime agents automatically.")
+    """Multi-agent orchestrator — Analyst → Data → Risk + Researcher → Portfolio Mgr."""
+    st.markdown("#### 🤖 Multi-Agent Orchestrator")
+    st.caption(
+        "TradingAgents-inspired pipeline. Your query runs through 5 specialized agents in "
+        "parallel where possible, with a decision log you can audit."
+    )
 
-    # Quick example chips
-    st.markdown("**Quick prompts** (click to fill):")
+    # Pipeline visualization
+    with st.expander("🔍 Pipeline architecture", expanded=False):
+        st.markdown("""
+        ```
+        ┌─ Analyst ─────┐
+        │ classify intent + extract tickers
+        └───────┬───────┘
+                ▼
+        ┌─ Data Agent ──┐
+        │ fetch prices · news · macro (parallel)
+        └───────┬───────┘
+                ▼
+        ┌─ Risk Manager ┐    ┌─ Researcher ──┐
+        │ VaR · GARCH   │ || │ AI trends     │
+        │ Cornish-Fisher│    │ summary       │
+        └───────┬───────┘    └───────┬───────┘
+                └────────┬───────────┘
+                         ▼
+                ┌─ Portfolio Manager ─┐
+                │ synthesize → action │
+                └─────────────────────┘
+        ```
+        """)
+
+    st.markdown("**Quick prompts:**")
     cols = st.columns(4)
     examples = [
-        "VaR of NVDA",
-        "Current market regime",
-        "Portfolio risk: AAPL MSFT GOOGL",
-        "RSI and SMA for TSLA",
+        "Analyze NVDA risk profile",
+        "Portfolio outlook: AAPL MSFT GOOGL",
+        "Should I buy TSLA?",
+        "Market regime + top movers",
     ]
     for col, ex in zip(cols, examples):
         with col:
@@ -242,48 +268,87 @@ def _render_custom_query_tab():
     query = st.text_input(
         "Your question",
         value=st.session_state.get("mgr_query", ""),
-        placeholder="e.g. What is the systemic risk level right now?",
+        placeholder="e.g. Compare AAPL vs MSFT risk-adjusted return",
         key="mgr_query_input",
     )
 
-    if st.button("🚀 Ask Agent", use_container_width=True, type="primary") and query:
-        with st.spinner("Routing query through Manager Agent…"):
+    if st.button("🚀 Run Orchestrator", use_container_width=True, type="primary") and query:
+        with st.spinner("Running multi-agent pipeline…"):
             try:
                 import asyncio
-                from agents.manager_agent import handle_query
+                from agents.orchestrator import run_orchestrator
                 loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(handle_query(query))
+                    result = loop.run_until_complete(run_orchestrator(query))
                 finally:
                     loop.close()
             except Exception as e:
-                st.error(f"Agent error: {e}")
+                st.error(f"Orchestrator error: {e}")
                 return
 
         if not result:
-            st.error("No response from agent. Try rephrasing.")
+            st.error("No response from orchestrator. Try rephrasing.")
             return
 
-        # Intent + tickers detection
-        c1, c2 = st.columns([1, 2])
+        # Top summary
+        c1, c2, c3 = st.columns([1, 2, 1])
         with c1:
             st.metric("Intent", (result.get("intent") or "?").upper())
         with c2:
             tickers = result.get("tickers") or []
             if tickers:
                 st.metric("Tickers", ", ".join(tickers))
+        with c3:
+            n_logs = len(result.get("decision_log") or [])
+            st.metric("Agent steps", n_logs)
 
         st.divider()
-        st.markdown("##### Answer")
-        answer = result.get("answer") or (
-            "*No answer generated. Either GROQ_API_KEY is missing or the query couldn't be routed.*"
-        )
-        st.markdown(answer)
+        st.markdown("##### 📋 Recommendation")
+        st.info(result.get("recommendation") or "*No recommendation generated.*")
 
-        # Show structured data if present
-        if result.get("data"):
-            with st.expander("📊 Raw data"):
-                st.json(result["data"])
+        # Risk metrics (per ticker)
+        risk_metrics = result.get("risk_metrics") or {}
+        if risk_metrics:
+            with st.expander("🎯 Risk Metrics (per ticker)", expanded=True):
+                import pandas as pd
+                rows = []
+                for tk, m in risk_metrics.items():
+                    if "error" in m:
+                        continue
+                    garch = m.get("garch_forecast") or {}
+                    rows.append({
+                        "Ticker":  tk,
+                        "VaR 95%": m.get("var_95"),
+                        "CVaR 95%": m.get("cvar_95"),
+                        "Sharpe":  m.get("sharpe"),
+                        "CF-VaR":  m.get("cornish_fisher_var"),
+                        "GARCH α": garch.get("alpha"),
+                        "GARCH β": garch.get("beta"),
+                        "5d Vol forecast": garch.get("forecast_vol"),
+                    })
+                if rows:
+                    st.dataframe(pd.DataFrame(rows).set_index("Ticker"), use_container_width=True)
+
+        # Research summary
+        if result.get("research_summary"):
+            with st.expander("📰 Research Summary"):
+                st.markdown(result["research_summary"])
+
+        # Decision log (audit trail)
+        with st.expander("🔍 Decision log (audit trail)"):
+            import pandas as pd
+            log = result.get("decision_log") or []
+            if log:
+                df = pd.DataFrame(log)
+                cols_to_show = [c for c in ["timestamp", "agent", "message"] if c in df.columns]
+                st.dataframe(df[cols_to_show], use_container_width=True)
+
+        # Errors (if any)
+        errors = result.get("errors") or []
+        if errors:
+            with st.expander(f"⚠ Errors ({len(errors)})"):
+                for err in errors:
+                    st.code(err)
 
 
 main()

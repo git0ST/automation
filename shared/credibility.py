@@ -27,24 +27,26 @@ DEFAULT_WEIGHT = 0.45
 
 # Source ID (pipeline source name) → weight
 SOURCE_WEIGHTS = {
-    "edgar":        TIER_1_REGULATORY,     # SEC filings — primary source
-    "congress":     TIER_1_REGULATORY,     # Congressional disclosures
-    "finra":        TIER_1_REGULATORY,     # FINRA short interest reports
-    "fred":         TIER_1_REGULATORY,     # Federal Reserve data
-    "credit":       TIER_1_REGULATORY,     # ICE BofA via FRED
-    "options":      TIER_2_WIRE,           # OPRA options flow
+    "edgar":        TIER_1_REGULATORY,
+    "congress":     TIER_1_REGULATORY,
+    "finra":        TIER_1_REGULATORY,
+    "fred":         TIER_1_REGULATORY,
+    "credit":       TIER_1_REGULATORY,
+    "forex":        TIER_2_WIRE,          # Yahoo FX = exchange-rate data
+    "commodity":    TIER_2_WIRE,          # CME futures via Yahoo
+    "options":      TIER_2_WIRE,
 
-    "fear_greed":   TIER_3_FINANCIAL_MEDIA, # CNN F&G index — composite
+    "fear_greed":   TIER_3_FINANCIAL_MEDIA,
     "coingecko":    TIER_3_FINANCIAL_MEDIA,
-    "finance":      TIER_3_FINANCIAL_MEDIA, # Yahoo Finance feed
-    "stocktwits":   TIER_6_COMMUNITY,      # Retail social
+    "finance":      TIER_3_FINANCIAL_MEDIA,
+    "stocktwits":   TIER_6_COMMUNITY,
 
-    "rss":          TIER_3_FINANCIAL_MEDIA, # depends on domain (see RSS_DOMAIN_WEIGHTS)
-    "arxiv":        TIER_3_FINANCIAL_MEDIA, # peer-reviewed research
+    "rss":          TIER_3_FINANCIAL_MEDIA,
+    "arxiv":        TIER_3_FINANCIAL_MEDIA,
     "github":       TIER_4_BUSINESS_NEWS,
     "stackoverflow": TIER_5_MAINSTREAM,
-    "hackernews":   TIER_5_MAINSTREAM,     # high quality but social aggregator
-    "gdelt":        TIER_5_MAINSTREAM,     # broad news aggregator
+    "hackernews":   TIER_5_MAINSTREAM,
+    "gdelt":        TIER_5_MAINSTREAM,
 
     "reddit":       TIER_7_SOCIAL,
 }
@@ -109,15 +111,27 @@ def credibility_weight(source: str, url: str | None = None) -> float:
     return SOURCE_WEIGHTS.get(source, DEFAULT_WEIGHT)
 
 
-def weighted_sentiment(items: list[dict]) -> dict:
-    """Aggregate sentiment across items, weighted by source credibility.
+def weighted_sentiment(items: list[dict],
+                       time_decay: bool = True,
+                       half_life_hours: float = 24.0) -> dict:
+    """Aggregate sentiment, weighted by source credibility + time decay.
+
+    Time decay: recent news matters more. weight = credibility · exp(-age_hrs/τ)
+    where τ = half_life / ln(2). Default half-life = 24h.
 
     Returns:
-        {bullish_pct, bearish_pct, neutral_pct, weighted_score, n_items}
+        {bullish_pct, bearish_pct, neutral_pct, weighted_score, n_items,
+         total_weight}
     """
     if not items:
         return {"bullish_pct": 0, "bearish_pct": 0, "neutral_pct": 0,
-                "weighted_score": 0.0, "n_items": 0}
+                "weighted_score": 0.0, "n_items": 0, "total_weight": 0.0}
+
+    import math
+    from datetime import datetime, timezone
+
+    tau = half_life_hours / math.log(2)  # exponential time constant
+    now = datetime.now(timezone.utc)
 
     bull_w = bear_w = neutral_w = total_w = 0.0
     raw_score_sum = 0.0
@@ -127,8 +141,20 @@ def weighted_sentiment(items: list[dict]) -> dict:
         src = it.get("source", "")
         url = it.get("url", "")
         w = credibility_weight(src, url)
-        total_w += w
 
+        if time_decay:
+            ts_str = it.get("published_at") or it.get("created_at")
+            if ts_str:
+                try:
+                    ts = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    age_hrs = max(0, (now - ts).total_seconds() / 3600)
+                    w *= math.exp(-age_hrs / tau)
+                except (ValueError, TypeError):
+                    pass
+
+        total_w += w
         label = it.get("sentiment_label") or "neutral"
         if label == "bullish":
             bull_w += w
@@ -137,7 +163,6 @@ def weighted_sentiment(items: list[dict]) -> dict:
         else:
             neutral_w += w
 
-        # Numeric score if available (-1..1)
         score = it.get("sentiment_score")
         if score is not None:
             try:
@@ -147,7 +172,7 @@ def weighted_sentiment(items: list[dict]) -> dict:
 
     if total_w == 0:
         return {"bullish_pct": 0, "bearish_pct": 0, "neutral_pct": 100,
-                "weighted_score": 0.0, "n_items": len(items)}
+                "weighted_score": 0.0, "n_items": len(items), "total_weight": 0.0}
 
     return {
         "bullish_pct":    round(bull_w / total_w * 100, 1),
@@ -155,7 +180,44 @@ def weighted_sentiment(items: list[dict]) -> dict:
         "neutral_pct":    round(neutral_w / total_w * 100, 1),
         "weighted_score": round(raw_score_sum / total_w, 4),
         "n_items":        len(items),
+        "total_weight":   round(total_w, 2),
     }
+
+
+def per_ticker_sentiment(items: list[dict],
+                         tickers: list[str],
+                         time_decay: bool = True) -> dict:
+    """Aspect-based sentiment per ticker — find items mentioning each ticker,
+    aggregate sentiment weighted by source credibility + time decay.
+
+    Returns: {ticker: {bullish_pct, bearish_pct, n_items, weighted_score}}
+    """
+    if not tickers:
+        return {}
+
+    result = {}
+    for ticker in tickers:
+        ticker_upper = ticker.upper()
+        matched = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            text = " ".join([
+                str(it.get("title") or ""),
+                str(it.get("preview") or ""),
+            ]).upper()
+            if ticker_upper in text:
+                matched.append(it)
+
+        if matched:
+            result[ticker] = weighted_sentiment(matched, time_decay=time_decay)
+        else:
+            result[ticker] = {
+                "bullish_pct": 0, "bearish_pct": 0, "neutral_pct": 0,
+                "weighted_score": 0.0, "n_items": 0, "total_weight": 0.0,
+            }
+
+    return result
 
 
 def _extract_domain(url: str) -> str | None:

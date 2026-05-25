@@ -127,12 +127,13 @@ jobs:
                   "hackernews":    15, "arxiv":       12,
                   "reddit":        15, "github":       12,
                   "rss":           15, "stackoverflow":10,
-                  "finance":       25, "fred":         12,
+                  "finance":       25, "fred":         20,
                   "fear_greed":     5, "edgar":        20,
                   "options":       15, "congress":     15,
                   "finra":         15, "gdelt":        20,
                   "stocktwits":    25, "coingecko":    20,
-                  "credit":         8,
+                  "credit":         8, "forex":         8,
+                  "commodity":     10,
               }
 
               print(f"┏━━━ Pipeline start ━━━┓")
@@ -197,7 +198,8 @@ jobs:
           client = create_client(url, key)
 
           tables = ["articles", "signals", "regime_snapshots", "risk_scores",
-                    "market_snapshots", "credit_spreads"]
+                    "market_snapshots", "credit_spreads", "portfolio_positions",
+                    "api_cache"]
           print()
           print("━━━━━━━━━━ SUPABASE VERIFY ━━━━━━━━━━")
           for t in tables:

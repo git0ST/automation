@@ -29,14 +29,13 @@ def _is_missing_table(err: Exception, table: str) -> bool:
 # ── Sentiment aggregation (credibility-weighted) ─────────────────────────────
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_weighted_sentiment(limit: int = 200) -> dict:
-    """Aggregate sentiment across articles, weighted by source credibility."""
+def load_weighted_sentiment(limit: int = 200, time_decay: bool = True) -> dict:
+    """Aggregate sentiment across articles, weighted by source credibility + time decay."""
     articles, _ = load_articles(limit=limit)
     try:
         from shared.credibility import weighted_sentiment
-        return weighted_sentiment(articles)
+        return weighted_sentiment(articles, time_decay=time_decay)
     except Exception:
-        # Fallback: simple unweighted aggregation
         bull = sum(1 for a in articles if a.get("sentiment_label") == "bullish")
         bear = sum(1 for a in articles if a.get("sentiment_label") == "bearish")
         total = max(len(articles), 1)
@@ -46,7 +45,21 @@ def load_weighted_sentiment(limit: int = 200) -> dict:
             "neutral_pct":    round((1 - (bull + bear) / total) * 100, 1),
             "weighted_score": 0.0,
             "n_items":        len(articles),
+            "total_weight":   0.0,
         }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_per_ticker_sentiment(tickers: tuple, limit: int = 200) -> dict:
+    """Per-ticker sentiment from recent articles. Cached per (tickers, limit)."""
+    if not tickers:
+        return {}
+    articles, _ = load_articles(limit=limit)
+    try:
+        from shared.credibility import per_ticker_sentiment
+        return per_ticker_sentiment(articles, list(tickers))
+    except Exception:
+        return {}
 
 
 # ── Articles (news feed) ─────────────────────────────────────────────────────
