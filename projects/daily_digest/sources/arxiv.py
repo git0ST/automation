@@ -1,20 +1,33 @@
+"""arXiv — restricted to quantitative finance (q-fin) category.
+
+Was pulling general ML/AI papers which aren't relevant to a trading terminal.
+q-fin includes: portfolio management, risk management, asset pricing,
+econometrics, mathematical finance, computational finance.
+"""
 import httpx
 import xml.etree.ElementTree as ET
 
 ARXIV_URL = "https://export.arxiv.org/api/query"
 NS = "http://www.w3.org/2005/Atom"
 
+# Quantitative finance categories only
+DEFAULT_QUERY = (
+    "cat:q-fin.PM+OR+cat:q-fin.RM+OR+cat:q-fin.TR+OR+"
+    "cat:q-fin.ST+OR+cat:q-fin.MF+OR+cat:q-fin.CP+OR+cat:q-fin.EC"
+)
 
-async def fetch_arxiv(query: str = "cat:cs.LG+OR+cat:cs.AI", limit: int = 10) -> list[dict]:
+
+async def fetch_arxiv(query: str = DEFAULT_QUERY, limit: int = 10) -> list[dict]:
     params = {
         "search_query": query,
         "start": 0,
-        "max_results": limit,
+        "max_results": limit * 2,  # over-fetch — some may still need filtering
         "sortBy": "submittedDate",
         "sortOrder": "descending",
     }
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(ARXIV_URL, params=params)
+
     root = ET.fromstring(resp.text)
     items = []
     for entry in root.findall(f"{{{NS}}}entry"):
@@ -30,6 +43,10 @@ async def fetch_arxiv(query: str = "cat:cs.LG+OR+cat:cs.AI", limit: int = 10) ->
             "score":   0,
             "preview": summary[:300] + ("…" if len(summary) > 300 else ""),
             "meta":    ", ".join(a for a in authors if a),
-            "tags":    ["ai", "research"],
+            "tags":    ["q-fin", "research"],
+            "finance_score": 0.9,  # q-fin papers are by definition finance-relevant
         })
+        if len(items) >= limit:
+            break
+
     return items

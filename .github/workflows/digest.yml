@@ -124,16 +124,23 @@ jobs:
                          if src_override else ALL_SOURCES)
 
               limits = {
-                  "hackernews":    15, "arxiv":       12,
-                  "reddit":        15, "github":       12,
-                  "rss":           15, "stackoverflow":10,
-                  "finance":       25, "fred":         20,
-                  "fear_greed":     5, "edgar":        20,
-                  "options":       15, "congress":     15,
-                  "finra":         15, "gdelt":        20,
-                  "stocktwits":    25, "coingecko":    20,
-                  "credit":         8, "forex":         8,
-                  "commodity":     10,
+                  # Regulatory primary sources
+                  "edgar":         25, "congress":     15,
+                  "finra":         15, "fred":          20,
+                  "credit":         8,
+                  # Wire services + financial media
+                  "rss":           25, "gdelt":        20,
+                  # Market data
+                  "finance":       25, "forex":         8,
+                  "commodity":     10, "coingecko":    20,
+                  "fear_greed":     5,
+                  # Trading signals
+                  "options":       15,
+                  # Community (with finance filter)
+                  "reddit":        15, "stocktwits":   25,
+                  "hackernews":    15,
+                  # Research
+                  "arxiv":         10,
               }
 
               print(f"┏━━━ Pipeline start ━━━┓")

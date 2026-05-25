@@ -1,6 +1,7 @@
-"""
-RSS source — 25+ feeds organized into 5 sectors.
-Each item carries a `sector` field used by the terminal layout.
+"""RSS source — finance/markets-only feed registry.
+
+Curated wire/financial-media feeds. NO general news, NO tech blogs,
+NO science. Bloomberg-style terminal scope.
 """
 
 import asyncio
@@ -8,48 +9,42 @@ import re
 import feedparser
 from typing import Optional
 
-# ── Sector-organized feed registry ───────────────────────────────────────────
+# ── Finance-only feed registry — wire services + financial media ────────────
 #  Format: (display_name, url, sector, base_score_boost)
 
 FEED_REGISTRY = [
-    # ── World News ──────────────────────────────────────────────────────────
-    ("Reuters World",    "https://feeds.reuters.com/Reuters/worldNews",              "world",    5),
-    ("Reuters Tech",     "https://feeds.reuters.com/reuters/technologyNews",          "world",    4),
-    ("BBC World",        "http://feeds.bbci.co.uk/news/world/rss.xml",              "world",    5),
-    ("BBC Tech",         "http://feeds.bbci.co.uk/news/technology/rss.xml",         "tech",     4),
-    ("Guardian World",   "https://www.theguardian.com/world/rss",                   "world",    3),
-    ("NPR News",         "https://feeds.npr.org/1001/rss.xml",                      "world",    3),
+    # ── Wire services (highest credibility) ─────────────────────────────────
+    ("Reuters Business",    "https://www.reuters.com/business/feed/",                     "finance",  8),
+    ("Reuters Markets",     "https://www.reuters.com/markets/us/feed/",                   "finance",  8),
+    ("Bloomberg Markets",   "https://feeds.bloomberg.com/markets/news.rss",               "finance",  8),
+    ("Bloomberg Wealth",    "https://feeds.bloomberg.com/wealth/news.rss",                "finance",  7),
+    ("Bloomberg Economics", "https://feeds.bloomberg.com/economics/news.rss",             "finance",  8),
+    ("FT Markets",          "https://www.ft.com/markets?format=rss",                      "finance",  7),
+    ("FT Companies",        "https://www.ft.com/companies?format=rss",                    "finance",  6),
 
-    # ── Tech & Developer ────────────────────────────────────────────────────
-    ("TechCrunch",       "https://techcrunch.com/feed/",                            "tech",     5),
-    ("Ars Technica",     "http://feeds.arstechnica.com/arstechnica/index",          "tech",     4),
-    ("The Verge",        "https://www.theverge.com/rss/index.xml",                  "tech",     4),
-    ("Wired",            "https://www.wired.com/feed/rss",                          "tech",     3),
-    ("VentureBeat",      "https://venturebeat.com/feed/",                           "tech",     3),
+    # ── Financial media ─────────────────────────────────────────────────────
+    ("WSJ Markets",         "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",              "finance",  7),
+    ("WSJ Business",        "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",            "finance",  6),
+    ("CNBC Top News",       "https://www.cnbc.com/id/100003114/device/rss/rss.html",      "finance",  6),
+    ("CNBC Markets",        "https://www.cnbc.com/id/15839135/device/rss/rss.html",       "finance",  6),
+    ("CNBC Investing",      "https://www.cnbc.com/id/15839069/device/rss/rss.html",       "finance",  5),
+    ("CNBC Economy",        "https://www.cnbc.com/id/20910258/device/rss/rss.html",       "finance",  5),
+    ("MarketWatch Top",     "https://feeds.marketwatch.com/marketwatch/topstories/",      "finance",  5),
+    ("MarketWatch Bulletins","https://feeds.marketwatch.com/marketwatch/bulletins/",      "finance",  5),
+    ("Yahoo Finance",       "https://finance.yahoo.com/news/rssindex",                    "finance",  4),
 
-    # ── AI & Machine Learning ───────────────────────────────────────────────
-    ("MIT Tech Review",  "https://www.technologyreview.com/feed/",                  "ai",       5),
-    ("Hugging Face",     "https://huggingface.co/blog/feed.xml",                    "ai",       5),
-    ("OpenAI Blog",      "https://openai.com/news/rss/",                            "ai",       5),
-    ("DeepMind",         "https://www.deepmind.com/blog/rss.xml",                   "ai",       4),
+    # ── Regulator + central bank ────────────────────────────────────────────
+    ("SEC Press Releases",  "https://www.sec.gov/news/pressreleases.rss",                 "finance",  9),
+    ("Fed Reserve Press",   "https://www.federalreserve.gov/feeds/press_all.xml",         "finance",  9),
 
-    # ── Science & Research ──────────────────────────────────────────────────
-    ("Nature News",      "https://www.nature.com/news.rss",                         "science",  5),
-    ("Science Daily",    "https://www.sciencedaily.com/rss/top/science.xml",        "science",  4),
-    ("Phys.org",         "https://phys.org/rss-feed/",                              "science",  3),
-    ("New Scientist",    "https://www.newscientist.com/feed/home/",                 "science",  3),
-
-    # ── Finance & Markets ───────────────────────────────────────────────────
-    ("CNBC Tech",        "https://www.cnbc.com/id/19854910/device/rss/rss.html",   "finance",  4),
+    # ── Sector-specific finance ─────────────────────────────────────────────
+    ("CoinDesk",            "https://www.coindesk.com/arc/outboundfeeds/rss/",            "crypto",   5),
+    ("Decrypt",             "https://decrypt.co/feed",                                    "crypto",   4),
 ]
 
 SECTOR_TAGS = {
-    "world":   ["news"],
-    "tech":    ["tech", "news"],
-    "ai":      ["ai", "tech"],
-    "science": ["research", "news"],
-    "finance": ["news"],
-    "dev":     ["code", "tech"],
+    "finance": ["finance", "markets"],
+    "crypto":  ["crypto"],
 }
 
 
@@ -93,4 +88,19 @@ async def fetch_rss(
                 continue
         return items
 
-    return await asyncio.to_thread(_parse_all)
+    items = await asyncio.to_thread(_parse_all)
+
+    # Safety net: even from finance feeds, drop items with off-topic titles
+    try:
+        from shared.finance_filter import finance_relevance, extract_tickers
+        filtered = []
+        for it in items:
+            is_rel, score, _ = finance_relevance(it.get("title", ""), it.get("preview", ""))
+            # Lenient — feed is already finance-curated, but kill obvious non-finance leakage
+            if is_rel or score >= 0.3:
+                it["finance_score"] = round(max(score, 0.5), 3)
+                it["entities"]      = extract_tickers(f"{it.get('title','')} {it.get('preview','')}")
+                filtered.append(it)
+        return filtered
+    except ImportError:
+        return items

@@ -8,21 +8,22 @@ from typing import Optional
 
 HEADERS = {"User-Agent": "DailyDigest/2.0 (personal automation; contact via github)"}
 
-# Subreddits organized by sector
+# Finance-only subreddits — high-signal investor/trader communities
 SUBREDDIT_SECTORS = {
-    "ai":       ["MachineLearning", "LocalLLaMA", "artificial", "AINews", "singularity"],
-    "tech":     ["technology", "programming", "softwareengineering", "compsci"],
-    "science":  ["science", "datascience", "Physics", "biology"],
-    "world":    ["worldnews", "geopolitics"],
-    "finance":  ["investing", "StockMarket", "CryptoCurrency"],
-    "dev":      ["learnprogramming", "webdev", "devops"],
+    "finance":   ["investing", "stocks", "StockMarket", "SecurityAnalysis",
+                  "ValueInvesting", "Bogleheads", "dividends", "ETFs"],
+    "trading":   ["options", "thetagang", "Daytrading", "wallstreetbets",
+                  "algotrading", "quant"],
+    "crypto":    ["CryptoCurrency", "CryptoMarkets", "Bitcoin", "ethfinance"],
+    "macro":     ["economy", "Economics", "geopolitics"],
+    "intl":      ["IndianStockMarket", "ASX_Bets", "CanadianInvestor"],
 }
 
+# Default: top finance + trading subs only — no general AI/tech/science/world
 DEFAULT_SUBREDDITS = (
-    SUBREDDIT_SECTORS["ai"][:3] +
-    SUBREDDIT_SECTORS["tech"][:2] +
-    SUBREDDIT_SECTORS["science"][:1] +
-    SUBREDDIT_SECTORS["world"][:1]
+    SUBREDDIT_SECTORS["finance"][:4] +
+    SUBREDDIT_SECTORS["trading"][:3] +
+    SUBREDDIT_SECTORS["crypto"][:2]
 )
 
 
@@ -81,4 +82,19 @@ async def fetch_reddit(
             except Exception:
                 continue
 
-    return items
+
+    # Safety net: even with finance subs, some posts are off-topic — filter
+    try:
+        from shared.finance_filter import finance_relevance, extract_tickers
+        filtered = []
+        for it in items:
+            is_rel, score, _ = finance_relevance(it.get("title", ""), it.get("preview", ""))
+            # Accept anything from these subs with score ≥ 0.3 (lenient — subreddit
+            # itself is already a finance filter)
+            if is_rel or score >= 0.3:
+                it["finance_score"] = round(max(score, 0.5), 3)
+                it["entities"]      = extract_tickers(f"{it.get('title','')} {it.get('preview','')}")
+                filtered.append(it)
+        return filtered
+    except ImportError:
+        return items

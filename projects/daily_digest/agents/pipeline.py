@@ -85,10 +85,18 @@ SOURCE_WEIGHTS = {
 
 
 def score_stage(items: list[dict]) -> list[dict]:
+    """Composite terminal score = source_weight × log(raw) × finance_relevance.
+
+    finance_score multiplier penalizes off-topic content even if it scored
+    highly on the original platform (e.g. a high-upvote HN story about a
+    Vatican encyclical gets near-zero terminal score).
+    """
     for item in items:
-        raw    = item.get("score") or 0
-        weight = SOURCE_WEIGHTS.get(item["source"], 0.5)
-        item["terminal_score"] = round(weight * math.log(max(raw, 1) + 1) * 10, 1)
+        raw            = item.get("score") or 0
+        weight         = SOURCE_WEIGHTS.get(item["source"], 0.5)
+        finance_score  = float(item.get("finance_score") or 0.5)
+        base           = weight * math.log(max(raw, 1) + 1) * 10
+        item["terminal_score"] = round(base * finance_score, 1)
     return sorted(items, key=lambda x: x.get("terminal_score", 0), reverse=True)
 
 

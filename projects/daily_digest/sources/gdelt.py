@@ -17,11 +17,14 @@ from datetime import datetime, timezone
 DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 QUERIES = [
-    ("AI market economy", "ai_economy"),
-    ("Federal Reserve inflation interest rate", "macro"),
-    ("merger acquisition earnings guidance", "corporate"),
-    ("geopolitical crisis energy supply", "geo"),
-    ("technology breakthrough innovation", "tech"),
+    ("Federal Reserve FOMC interest rate decision",       "macro"),
+    ("inflation CPI PCE earnings guidance",               "macro"),
+    ("merger acquisition IPO stock buyback dividend",     "corporate"),
+    ("hedge fund insider trading SEC filing",             "regulatory"),
+    ("oil OPEC gold copper commodity supply",             "commodity"),
+    ("dollar yen euro currency rate trade",               "forex"),
+    ("recession yield curve credit spread default",       "macro"),
+    ("S&P 500 Nasdaq Dow Jones volatility",               "markets"),
 ]
 
 

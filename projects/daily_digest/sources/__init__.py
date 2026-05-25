@@ -40,13 +40,26 @@ SOURCE_FETCHERS = {
     "commodity":     fetch_commodities,
 }
 
-# Sources included in full pipeline runs (19 total)
+# Finance-focused sources only — Bloomberg terminal scope
+# Removed: stackoverflow (dev Q&A), github (general code repos)
+# Kept (with finance filter): hackernews, reddit (only finance subs), arxiv (q-fin only)
 ALL_SOURCES = [
-    "hackernews", "arxiv", "reddit", "github",
-    "rss", "finance", "stackoverflow", "fred", "fear_greed",
-    "edgar", "gdelt", "stocktwits", "options", "coingecko", "congress", "finra",
-    "credit", "forex", "commodity",
+    # Regulatory / primary sources (highest signal)
+    "edgar", "congress", "finra", "fred", "credit",
+    # Wire services + financial media
+    "rss", "gdelt",
+    # Market data (prices, snapshots, indicators)
+    "finance", "forex", "commodity", "coingecko", "fear_greed",
+    # Trading signals
+    "options",
+    # Community (with finance-only filtering)
+    "reddit", "stocktwits", "hackernews",
+    # Research
+    "arxiv",
 ]
+
+# Sources excluded from default but still callable explicitly
+LEGACY_SOURCES = ["stackoverflow", "github"]
 
 # Sources that produce actionable trade signals (not news)
 SIGNAL_SOURCES = {"edgar", "options", "congress", "finra"}
