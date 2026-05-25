@@ -1,17 +1,20 @@
 """
-Intelligence Terminal v2.0 — FastAPI web server.
+Intelligence Terminal v2.1 — FastAPI web server.
 
-15-source pipeline: HN · arXiv · Reddit · GitHub · RSS · StackOverflow ·
-  FRED · Fear&Greed · Finance · EDGAR · GDELT · StockTwits · Options · CoinGecko · Congress
+17-source pipeline: HN · arXiv · Reddit · GitHub · RSS · StackOverflow ·
+  FRED · Credit Spreads · Fear&Greed · Finance · EDGAR · GDELT · StockTwits ·
+  Options · CoinGecko · Congress · FINRA
 
 Endpoints:
-  GET  /                    — Terminal UI (Bloomberg-style dark terminal)
+  GET  /                    — Terminal UI (Bloomberg/Aladdin-style dark terminal)
   GET  /api/pipeline        — Full pipeline (cached 5 min, stale-while-revalidate)
   GET  /api/market          — Market data only (cached 2 min)
   GET  /api/market/history  — Price history for sparklines (Supabase)
-  GET  /api/macro           — FRED macro indicators
+  GET  /api/macro           — FRED + credit spread macro indicators
   GET  /api/fear_greed      — Fear & Greed indices
   GET  /api/signals         — Trade signals: insider (edgar), options flow, congress
+  GET  /api/regime          — BlackRock Aladdin-style regime classification
+  GET  /api/risk            — Systemic Risk Score (0-100 composite)
   GET  /api/alerts          — Recent alerts
   GET  /api/sentiment       — Current sentiment summary
   GET  /api/stream          — SSE stream: pushed when pipeline refreshes
@@ -169,6 +172,11 @@ def _build_pipeline_payload(result: dict) -> dict:
     macro_out = [i["macro_data"] for i in result.get("macro_data", []) if i.get("macro_data")]
     fg_out    = [i["fear_greed"] for i in result.get("fear_greed", [])  if i.get("fear_greed")]
 
+    # Intelligence layer — regime + systemic risk
+    intelligence = result.get("intelligence", {})
+    regime_out = intelligence.get("regime") or {}
+    risk_out   = intelligence.get("risk") or {}
+
     alerts_out = []
     for a in result.get("alerts", []):
         alerts_out.append({
@@ -189,6 +197,8 @@ def _build_pipeline_payload(result: dict) -> dict:
         "sentiment":   result.get("sentiment", {}),
         "briefing":    result.get("briefing", ""),
         "trends":      result.get("trends", {}),
+        "regime":      regime_out,
+        "risk":        risk_out,
         "fetch_stats": result.get("fetch_stats", {}),
         "run_meta":    result.get("run_meta", {}),
         "server_ts":   int(time.time()),
@@ -224,6 +234,8 @@ async def _do_pipeline_refresh(run_ai: bool = False) -> None:
             "coingecko":     20,
             # Short interest
             "finra":         15,
+            # Institutional credit spreads (ICE BofA via FRED)
+            "credit":        10,
         }
         result  = await run_pipeline(sources=src_list, limits=limits, run_ai=run_ai)
         payload = _build_pipeline_payload(result)
@@ -231,12 +243,18 @@ async def _do_pipeline_refresh(run_ai: bool = False) -> None:
         _cache["pipeline"]["ts"]   = time.time()
 
         # Broadcast update to all SSE clients
+        regime = payload.get("regime", {})
+        risk   = payload.get("risk", {})
         await _broadcast("pipeline_updated", {
             "item_count":   len(payload["items"]),
             "signal_count": len(payload["signals"]),
             "alert_count":  len(payload["alerts"]),
             "alerts":       payload["alerts"][:5],
             "sentiment":    payload["sentiment"],
+            "regime_label": regime.get("label"),
+            "regime_color": regime.get("color"),
+            "srs":          risk.get("srs"),
+            "risk_level":   risk.get("level"),
             "server_ts":    payload["server_ts"],
         })
     except Exception as e:
@@ -451,6 +469,55 @@ async def api_signals(
     if source:
         sigs = [s for s in sigs if s.get("source") == source]
     return JSONResponse({"signals": sigs[:limit], "source": "cache", "count": len(sigs)})
+
+
+@app.get("/api/regime")
+async def api_regime():
+    """
+    BlackRock Aladdin-style market regime classification.
+    Returns: Goldilocks | Reflation | Stagflation | Deflation
+    with confidence score, growth/inflation axes, and asset allocation implications.
+    """
+    cached = _cache["pipeline"].get("data") or {}
+    regime = cached.get("regime")
+    if regime:
+        return JSONResponse({"regime": regime, "source": "cache",
+                             "cache_age": int(time.time() - _cache["pipeline"]["ts"])})
+    # Live fallback: fetch macro data and compute immediately
+    try:
+        from sources.fred import fetch_fred
+        from intelligence.regime import detect_regime, regime_to_dict, macro_list_to_dict
+        items = await fetch_fred()
+        macro_dict = macro_list_to_dict([i["macro_data"] for i in items if i.get("macro_data")])
+        r = detect_regime(macro_dict)
+        return JSONResponse({"regime": regime_to_dict(r), "source": "live"})
+    except Exception as e:
+        return JSONResponse({"regime": {}, "error": str(e)}, status_code=500)
+
+
+@app.get("/api/risk")
+async def api_risk():
+    """
+    Systemic Risk Score (SRS) — 0–100 composite risk indicator.
+    Inspired by BlackRock's multi-factor risk framework.
+    Components: VIX (30%), Yield Curve (25%), Rate Stress (15%),
+                Sentiment Extremes (15%), Labor Market (15%).
+    """
+    cached = _cache["pipeline"].get("data") or {}
+    risk = cached.get("risk")
+    if risk:
+        return JSONResponse({"risk": risk, "source": "cache",
+                             "cache_age": int(time.time() - _cache["pipeline"]["ts"])})
+    try:
+        from sources.fred import fetch_fred
+        from intelligence.risk import compute_risk, risk_to_dict
+        from intelligence.regime import macro_list_to_dict
+        items = await fetch_fred()
+        macro_dict = macro_list_to_dict([i["macro_data"] for i in items if i.get("macro_data")])
+        r = compute_risk(macro_dict)
+        return JSONResponse({"risk": risk_to_dict(r), "source": "live"})
+    except Exception as e:
+        return JSONResponse({"risk": {}, "error": str(e)}, status_code=500)
 
 
 @app.get("/api/sentiment")

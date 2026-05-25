@@ -2,14 +2,15 @@
 Intelligence Terminal — Multi-agent pipeline.
 
 Stages:
-  1. FETCH     — parallel async ingestion from all sources
-  2. FILTER    — deduplicate, remove junk
-  3. SCORE     — composite terminal_score
-  4. SENTIMENT — VADER for all items, entity extraction
-  5. ANALYZE   — Ollama cross-source trend analysis  (run_ai=True)
-  6. BRIEF     — Ollama editorial briefing           (run_ai=True)
-  7. ALERTS    — detect significant market moves
-  8. STORE     — persist to Supabase (async, non-blocking)
+  1. FETCH       — parallel async ingestion from all sources
+  2. FILTER      — deduplicate, remove junk
+  3. SCORE       — composite terminal_score
+  4. SENTIMENT   — VADER for all items, entity extraction
+  5. INTELLIGENCE— Regime detection + Systemic Risk Score (Aladdin-inspired)
+  6. ANALYZE     — Ollama cross-source trend analysis  (run_ai=True)
+  7. BRIEF       — Ollama editorial briefing           (run_ai=True)
+  8. ALERTS      — detect significant market moves
+  9. STORE       — persist to Supabase (async, non-blocking)
 """
 
 import asyncio
@@ -243,7 +244,7 @@ def extract_market_data(items):
     return [i for i in items if i.get("source") in ("finance", "coingecko") and i.get("market_data")]
 
 def extract_macro_data(items):
-    return [i for i in items if i.get("source") in ("fred", "macro")]
+    return [i for i in items if i.get("source") in ("fred", "macro", "credit")]
 
 def extract_fear_greed(items):
     return [i for i in items if i.get("source") == "fear_greed"]
@@ -252,6 +253,56 @@ def extract_signals(items):
     """Extract high-value trade signals: insider trades, options flow, congress."""
     from sources import SIGNAL_SOURCES
     return [i for i in items if i.get("source") in SIGNAL_SOURCES]
+
+
+# ── Stage 5: Intelligence (Regime + Risk) ─────────────────────────────────────
+
+def intelligence_stage(macro_items: list[dict], fg_items: list[dict], sentiment: dict) -> dict:
+    """
+    Run BlackRock Aladdin-inspired regime detection and systemic risk scoring.
+
+    Returns:
+        {
+          "regime": RegimeReading serialized dict,
+          "risk":   RiskSnapshot serialized dict,
+        }
+    """
+    result = {"regime": None, "risk": None}
+    try:
+        from intelligence.regime import detect_regime, regime_to_dict, macro_list_to_dict
+        from intelligence.risk import compute_risk, risk_to_dict
+
+        # Build {series_id: value} dict from FRED + credit spread items
+        macro_dict = macro_list_to_dict([
+            it["macro_data"] for it in macro_items if it.get("macro_data")
+        ])
+
+        # Fear/Greed value (use equity F&G if available, else crypto)
+        fg_value = None
+        for item in fg_items:
+            fg = item.get("fear_greed", {})
+            if fg and fg.get("source") == "stocks":
+                fg_value = fg.get("value")
+                break
+        if fg_value is None:
+            for item in fg_items:
+                fg = item.get("fear_greed", {})
+                if fg:
+                    fg_value = fg.get("value")
+                    break
+
+        sentiment_avg = sentiment.get("avg") if sentiment else None
+
+        regime  = detect_regime(macro_dict, sentiment_score=sentiment_avg)
+        risk    = compute_risk(macro_dict, fear_greed_value=fg_value, sentiment_avg=sentiment_avg)
+
+        result["regime"] = regime_to_dict(regime)
+        result["risk"]   = risk_to_dict(risk)
+
+    except Exception as e:
+        print(f"  [intelligence] error: {e}")
+
+    return result
 
 
 # ── Main Entrypoint ───────────────────────────────────────────────────────────
@@ -274,7 +325,7 @@ async def run_pipeline(
     print(f"  [3/8] Scoring {len(filtered)} items…")
     scored = score_stage(filtered)
 
-    print(f"  [4/8] Sentiment + entity analysis…")
+    print(f"  [4/9] Sentiment + entity analysis…")
     scored, sentiment = sentiment_stage(scored)
 
     market_data  = extract_market_data(scored)
@@ -283,22 +334,25 @@ async def run_pipeline(
     signal_data  = extract_signals(scored)
     market_flat  = [i["market_data"] for i in market_data if i.get("market_data")]
 
+    print(f"  [5/9] Intelligence layer (regime + risk)…")
+    intelligence = intelligence_stage(macro_data, fg_data, sentiment)
+
     trends = {}
     briefing = ""
     if run_ai:
-        print(f"  [5/8] Trend analysis (Ollama)…")
+        print(f"  [6/9] Trend analysis (Ollama)…")
         trends = analyze_stage(scored)
-        print(f"  [6/8] Briefing generation (Ollama)…")
+        print(f"  [7/9] Briefing generation (Ollama)…")
         briefing = briefing_stage(scored, trends, market_data, sentiment)
     else:
         briefing = _fallback_briefing(scored, market_data)
 
-    print(f"  [7/8] Alert detection…")
+    print(f"  [8/9] Alert detection…")
     alerts = alerts_stage(market_flat, sentiment)
 
     store_stats = {}
     if store:
-        print(f"  [8/8] Persisting to Supabase…")
+        print(f"  [9/9] Persisting to Supabase…")
         store_stats = store_stage(
             scored, market_flat, briefing, _time_of_day(),
             alerts, macro_data, fg_data, signal_data,
@@ -314,6 +368,7 @@ async def run_pipeline(
         "briefing":     briefing,
         "trends":       trends,
         "sentiment":    sentiment,
+        "intelligence": intelligence,
         "fetch_stats":  fetch_stats,
         "store_stats":  store_stats,
         "run_meta": {

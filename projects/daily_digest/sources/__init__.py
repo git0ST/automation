@@ -14,6 +14,7 @@ from .options import fetch_options
 from .coingecko import fetch_coingecko
 from .congress import fetch_congress
 from .finra_short import fetch_finra_short
+from .credit_spreads import fetch_credit_spreads
 
 SOURCE_FETCHERS = {
     "hackernews":    fetch_hackernews,
@@ -32,6 +33,7 @@ SOURCE_FETCHERS = {
     "coingecko":     fetch_coingecko,
     "congress":      fetch_congress,
     "finra":         fetch_finra_short,
+    "credit":        fetch_credit_spreads,
 }
 
 # Sources included in full pipeline runs
@@ -39,6 +41,7 @@ ALL_SOURCES = [
     "hackernews", "arxiv", "reddit", "github",
     "rss", "finance", "stackoverflow", "fred", "fear_greed",
     "edgar", "gdelt", "stocktwits", "options", "coingecko", "congress", "finra",
+    "credit",
 ]
 
 # Sources that produce actionable trade signals (not news)
@@ -47,5 +50,8 @@ SIGNAL_SOURCES = {"edgar", "options", "congress", "finra"}
 # Sources that produce crypto market data
 CRYPTO_SOURCES = {"coingecko"}
 
+# Sources that produce institutional macro / credit data (not news)
+MACRO_SOURCES = {"fred", "macro", "credit"}
+
 # Sources excluded from the main news feed
-NON_FEED_SOURCES = {"finance", "fred", "macro", "fear_greed"} | SIGNAL_SOURCES | CRYPTO_SOURCES
+NON_FEED_SOURCES = {"finance", "fear_greed"} | MACRO_SOURCES | SIGNAL_SOURCES | CRYPTO_SOURCES
