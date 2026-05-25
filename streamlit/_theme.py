@@ -54,17 +54,29 @@ def apply_theme() -> None:
 
 # ── The CSS itself ────────────────────────────────────────────────────────────
 _CSS = """
-<!-- Google Fonts: Inter (UI) + IBM Plex Mono (numbers) — TradingView research showed
-     monospaced numbers reduce mis-read errors by ~26% for traders -->
+<!-- Google Fonts: Inter (UI) + IBM Plex Mono (numbers) + Material Symbols
+     (Streamlit's bundled icon font sometimes fails on Streamlit Cloud) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,-50..200&display=swap" rel="stylesheet">
 
 <style>
 /* ═══════════ BASE LAYOUT ═══════════ */
-html, body, [class*="st-"] {
+/* CRITICAL: do NOT apply font-family to [class*="st-"] — it overrides
+   Material Symbols icon fonts, causing literal "keyboard_double_arrow_left"
+   and "arrow_drop_down" text to appear instead of actual icons. */
+html, body, .stApp, [data-testid="stMarkdownContainer"], p, span, div, label, h1, h2, h3, h4, h5, h6, input, textarea, button {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';   /* Inter alternates */
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Preserve Material Symbols font on icon elements */
+.material-symbols-rounded, .material-symbols-outlined, .material-icons,
+[class*="material-symbol"], [class*="MuiSvgIcon"],
+[data-testid="stIconMaterial"] {
+  font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
+  font-feature-settings: 'liga' !important;
 }
 
 .main, .stApp { background: #0a0e1a !important; color: #e6e9f0 !important; }
@@ -333,11 +345,41 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 /* ═══════════ PLOTLY CONTAINER ═══════════ */
 .js-plotly-plot, .plotly { background: transparent !important; }
 
-/* ═══════════ HIDE STREAMLIT BRANDING ═══════════ */
+/* ═══════════ HIDE STREAMLIT BRANDING (but keep sidebar toggle!) ═══════════ */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header { visibility: hidden; }
+
+/* DO NOT hide the entire header — that hides the sidebar reopen button.
+   Instead, hide only the title bar's right-side menu/toolbar items but
+   preserve the left-side sidebar toggle. */
+header [data-testid="stToolbar"] { visibility: hidden !important; }
+header [data-testid="stDecoration"] { visibility: hidden !important; }
+header [data-testid="stStatusWidget"] { visibility: hidden !important; }
+
+/* Sidebar toggle button — make it explicit and well-styled when sidebar is closed */
+[data-testid="stSidebarCollapsedControl"] {
+  visibility: visible !important;
+  display: flex !important;
+  background: #131825;
+  border: 1px solid #2a3447;
+  border-radius: 6px;
+  padding: 6px;
+}
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] button { color: #4c8bf5 !important; }
+
 .viewerBadge_container__1QSob { display: none !important; }
+
+/* ═══════════ EXPANDER ICON FIX ═══════════ */
+/* Ensure the expand/collapse arrow renders as an icon, not literal "arrow_drop_down" */
+.stExpander summary > svg,
+.stExpander summary [data-testid*="Icon"],
+details summary::-webkit-details-marker { display: inline-block !important; }
+
+/* Prevent any icon-font fallback text from rendering visibly */
+.stExpander summary, button {
+  font-feature-settings: 'liga' !important;
+}
 </style>
 """
 

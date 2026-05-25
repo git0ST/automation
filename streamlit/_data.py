@@ -103,28 +103,36 @@ def load_market_snapshots(limit: int = 60) -> tuple[list, str]:
 
 # ── Regime + Risk (with live FRED fallback) ──────────────────────────────────
 
-# FRED public CSV endpoint — no API key required for these series
-FRED_SERIES = {
-    "T10Y2Y":       "yield_curve_10y_2y",
-    "DFF":          "fed_funds",
-    "CPIAUCSL":     "cpi",
-    "UNRATE":       "unemployment",
-    "VIXCLS":       "vix",
-    "DGS10":        "treasury_10y",
-    "T10YIE":       "breakeven_inflation_10y",
-    "BAMLH0A0HYM2": "hy_oas",
-    "BAMLC0A0CM":   "ig_oas",
-}
+# FRED series IDs the regime + risk engines expect.
+# IMPORTANT: detect_regime() and compute_risk() expect this dict keyed by
+# the **FRED series_id** (e.g. "T10Y2Y") with **raw float values**, not nested
+# {"value": ...} objects. Match what pipeline.macro_list_to_dict() produces.
+FRED_SERIES = [
+    "T10Y2Y",        # 10Y-2Y spread
+    "FEDFUNDS",      # Monthly fed funds rate (regime + risk both need this exact ID)
+    "DFF",           # Daily fed funds — secondary
+    "CPIAUCSL",      # CPI
+    "UNRATE",        # Unemployment
+    "VIXCLS",        # VIX
+    "DGS10",         # 10Y treasury
+    "T10YIE",        # 10Y breakeven inflation
+    "BAMLH0A0HYM2",  # ICE BofA HY OAS
+    "BAMLC0A0CM",    # ICE BofA IG OAS
+]
 
 
 @st.cache_data(ttl=900, show_spinner=False)  # 15 min — FRED updates daily
 def fetch_fred_live() -> dict:
-    """Fetch latest macro values from FRED public CSV. Returns dict keyed by short name."""
+    """Fetch latest macro values from FRED public CSV.
+
+    Returns dict keyed by FRED series_id (T10Y2Y, VIXCLS, ...) with raw float
+    values — matches the shape detect_regime() and compute_risk() require.
+    """
     import httpx
-    macro = {}
+    macro: dict[str, float] = {}
     try:
         with httpx.Client(timeout=10) as client:
-            for series_id, key in FRED_SERIES.items():
+            for series_id in FRED_SERIES:
                 try:
                     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
                     r = client.get(url)
@@ -135,11 +143,7 @@ def fetch_fred_live() -> dict:
                         parts = row.split(",")
                         if len(parts) >= 2 and parts[1] not in (".", ""):
                             try:
-                                macro[key] = {
-                                    "value": float(parts[1]),
-                                    "period": parts[0],
-                                    "series_id": series_id,
-                                }
+                                macro[series_id] = float(parts[1])
                                 break
                             except ValueError:
                                 continue
