@@ -36,12 +36,28 @@ def vader_score(text: str) -> tuple[float, str]:
     return c, "neutral"
 
 
+
+# Sources whose sentiment is domain-computed and should NOT be overwritten by VADER
+_PRESERVE_SENTIMENT_SOURCES = {"options", "edgar", "congress", "finra", "coingecko", "finance"}
+
+
 def score_stage_sentiment(items: list[dict]) -> list[dict]:
     """
     Enrich every item with sentiment_score and sentiment_label using VADER.
     Works on title + preview combined for better accuracy.
+
+    Signal sources (options, edgar, congress, finra) already have expert-computed
+    sentiment — those are preserved and not overwritten by VADER.
     """
     for item in items:
+        # Preserve domain-set sentiment for signal & market sources
+        if item.get("source") in _PRESERVE_SENTIMENT_SOURCES:
+            # Only apply VADER if no sentiment was set
+            if item.get("sentiment_label") and item.get("sentiment_label") != "neutral":
+                continue
+            if item.get("sentiment_score", 0) != 0:
+                continue
+
         text = (item.get("title") or "") + " " + (item.get("preview") or "")
         sc, lb = vader_score(text[:512])
         item["sentiment_score"] = round(sc, 4)
