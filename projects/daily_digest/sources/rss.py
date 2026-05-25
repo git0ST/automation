@@ -95,11 +95,11 @@ async def fetch_rss(
         from shared.finance_filter import finance_relevance, extract_tickers
         filtered = []
         for it in items:
-            is_rel, score, _ = finance_relevance(it.get("title", ""), it.get("preview", ""))
-            # Lenient — feed is already finance-curated, but kill obvious non-finance leakage
+            is_rel, score, evidence = finance_relevance(it.get("title", ""), it.get("preview", ""))
             if is_rel or score >= 0.3:
                 it["finance_score"] = round(max(score, 0.5), 3)
                 it["entities"]      = extract_tickers(f"{it.get('title','')} {it.get('preview','')}")
+                it["evidence"]      = evidence[:6]
                 filtered.append(it)
         return filtered
     except ImportError:

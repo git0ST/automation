@@ -56,6 +56,7 @@ async def fetch_hackernews(limit: int = 15) -> list[dict]:
                 continue
             r["finance_score"] = round(score, 3)
             r["entities"]      = extract_tickers(f"{r.get('title','')} {r.get('preview','')}")
+            r["evidence"]      = evidence[:6]
         items.append(r)
         if len(items) >= limit:
             break

@@ -88,12 +88,12 @@ async def fetch_reddit(
         from shared.finance_filter import finance_relevance, extract_tickers
         filtered = []
         for it in items:
-            is_rel, score, _ = finance_relevance(it.get("title", ""), it.get("preview", ""))
-            # Accept anything from these subs with score ≥ 0.3 (lenient — subreddit
-            # itself is already a finance filter)
+            is_rel, score, evidence = finance_relevance(it.get("title", ""), it.get("preview", ""))
+            # Lenient — subreddit itself is a finance filter; keep anything with score >= 0.3
             if is_rel or score >= 0.3:
                 it["finance_score"] = round(max(score, 0.5), 3)
                 it["entities"]      = extract_tickers(f"{it.get('title','')} {it.get('preview','')}")
+                it["evidence"]      = evidence[:6]
                 filtered.append(it)
         return filtered
     except ImportError:

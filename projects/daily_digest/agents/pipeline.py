@@ -85,18 +85,43 @@ SOURCE_WEIGHTS = {
 
 
 def score_stage(items: list[dict]) -> list[dict]:
-    """Composite terminal score = source_weight × log(raw) × finance_relevance.
+    """Composite terminal score = source_weight × log(raw) × finance_score × adaptive.
 
-    finance_score multiplier penalizes off-topic content even if it scored
-    highly on the original platform (e.g. a high-upvote HN story about a
-    Vatican encyclical gets near-zero terminal score).
+    Layers:
+      - source_weight  : credibility per source (SEC > Bloomberg > Reddit)
+      - log(raw_score) : platform popularity, log-scaled
+      - finance_score  : multi-signal relevance (0-1)
+      - cross_source   : amplify if 3+ sources mention same entity
+      - adaptive       : learned weight from past entity → market move correlation
     """
+    # Cross-source amplification (mutates items in place)
+    try:
+        from shared.finance_filter import cross_source_amplify
+        items = cross_source_amplify(items)
+    except Exception:
+        pass
+
+    # Per-item scoring + optional adaptive layer
+    try:
+        from shared.adaptive_relevance import adaptive_score
+        adaptive_enabled = True
+    except Exception:
+        adaptive_enabled = False
+
     for item in items:
         raw            = item.get("score") or 0
         weight         = SOURCE_WEIGHTS.get(item["source"], 0.5)
         finance_score  = float(item.get("finance_score") or 0.5)
-        base           = weight * math.log(max(raw, 1) + 1) * 10
+
+        if adaptive_enabled and item.get("evidence"):
+            try:
+                finance_score, _ = adaptive_score(finance_score, item["evidence"])
+            except Exception:
+                pass
+
+        base = weight * math.log(max(raw, 1) + 1) * 10
         item["terminal_score"] = round(base * finance_score, 1)
+
     return sorted(items, key=lambda x: x.get("terminal_score", 0), reverse=True)
 
 
