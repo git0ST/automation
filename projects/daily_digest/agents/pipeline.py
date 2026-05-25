@@ -203,12 +203,13 @@ def alerts_stage(market_flat: list[dict], sentiment: dict) -> list[dict]:
 
 # ── Stage 8: Supabase Store ───────────────────────────────────────────────────
 
-def store_stage(items, market_flat, briefing, tod, alerts, macro_items, fg_items, signal_items=None) -> dict:
+def store_stage(items, market_flat, briefing, tod, alerts, macro_items, fg_items,
+                signal_items=None, intelligence=None) -> dict:
     try:
         from db.supabase_sync import (
             is_available, upsert_articles, save_market_snapshot,
             save_briefing, create_alert, save_macro_indicators, save_fear_greed,
-            save_signals,
+            save_signals, save_regime_snapshot, save_risk_score,
         )
     except ImportError:
         return {"supabase": False}
@@ -234,6 +235,15 @@ def store_stage(items, market_flat, briefing, tod, alerts, macro_items, fg_items
             save_signals(signal_items)
         except Exception:
             pass
+    # Persist intelligence layer snapshots for historical analytics
+    if intelligence:
+        try:
+            if intelligence.get("regime"):
+                save_regime_snapshot(intelligence["regime"])
+            if intelligence.get("risk"):
+                save_risk_score(intelligence["risk"])
+        except Exception as e:
+            print(f"  [store] intelligence persist error: {e}")
     return {"supabase": True, **stats}
 
 
@@ -356,6 +366,7 @@ async def run_pipeline(
         store_stats = store_stage(
             scored, market_flat, briefing, _time_of_day(),
             alerts, macro_data, fg_data, signal_data,
+            intelligence=intelligence,
         )
 
     return {

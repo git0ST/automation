@@ -520,6 +520,28 @@ async def api_risk():
         return JSONResponse({"risk": {}, "error": str(e)}, status_code=500)
 
 
+@app.get("/api/regime/history")
+async def api_regime_history(limit: int = Query(default=30)):
+    """Historical regime snapshots — enables regime transition analysis."""
+    try:
+        from db.supabase_sync import get_regime_history
+        rows = get_regime_history(limit=limit)
+        return JSONResponse({"history": rows, "count": len(rows)})
+    except Exception as e:
+        return JSONResponse({"history": [], "error": str(e)})
+
+
+@app.get("/api/risk/history")
+async def api_risk_history(limit: int = Query(default=30)):
+    """Historical SRS snapshots — enables risk trend analysis."""
+    try:
+        from db.supabase_sync import get_risk_history
+        rows = get_risk_history(limit=limit)
+        return JSONResponse({"history": rows, "count": len(rows)})
+    except Exception as e:
+        return JSONResponse({"history": [], "error": str(e)})
+
+
 @app.get("/api/sentiment")
 async def api_sentiment():
     cached = _cache["pipeline"].get("data") or {}

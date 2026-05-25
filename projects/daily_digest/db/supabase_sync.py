@@ -322,3 +322,75 @@ def get_recent_signals(source: Optional[str] = None, limit: int = 30) -> list[di
         return (q.execute()).data or []
     except Exception:
         return []
+
+
+# ── Intelligence: Regime + Risk persistence ───────────────────────────────────
+
+def save_regime_snapshot(regime: dict):
+    """Persist a regime reading for historical trend analysis."""
+    client = get_client()
+    if not client or not regime:
+        return
+    try:
+        client.table("regime_snapshots").insert({
+            "regime":          regime.get("regime", ""),
+            "label":           regime.get("label", ""),
+            "color":           regime.get("color"),
+            "description":     regime.get("description"),
+            "confidence_pct":  regime.get("confidence_pct", 0),
+            "growth_score":    regime.get("growth_score", 0),
+            "inflation_score": regime.get("inflation_score", 0),
+            "transition_risk": regime.get("transition_risk", "low"),
+            "favors":          regime.get("favors", []),
+            "avoids":          regime.get("avoids", []),
+            "signals":         regime.get("signals", []),
+        }).execute()
+    except Exception as e:
+        print(f"[supabase] regime snapshot error: {e}")
+
+
+def save_risk_score(risk: dict):
+    """Persist a Systemic Risk Score snapshot."""
+    client = get_client()
+    if not client or not risk:
+        return
+    try:
+        client.table("risk_scores").insert({
+            "srs":       risk.get("srs", 0),
+            "level":     risk.get("level", "Moderate"),
+            "color":     risk.get("color"),
+            "top_risks": risk.get("top_risks", []),
+            "factors":   risk.get("factors", []),
+        }).execute()
+    except Exception as e:
+        print(f"[supabase] risk score error: {e}")
+
+
+def get_regime_history(limit: int = 30) -> list[dict]:
+    """Fetch recent regime snapshots for trend display."""
+    client = get_client()
+    if not client:
+        return []
+    try:
+        return (client.table("regime_snapshots")
+                .select("id,regime,label,color,confidence_pct,growth_score,inflation_score,transition_risk,captured_at")
+                .order("captured_at", desc=True)
+                .limit(limit)
+                .execute()).data or []
+    except Exception:
+        return []
+
+
+def get_risk_history(limit: int = 30) -> list[dict]:
+    """Fetch recent SRS history for trend display."""
+    client = get_client()
+    if not client:
+        return []
+    try:
+        return (client.table("risk_scores")
+                .select("id,srs,level,color,top_risks,captured_at")
+                .order("captured_at", desc=True)
+                .limit(limit)
+                .execute()).data or []
+    except Exception:
+        return []
