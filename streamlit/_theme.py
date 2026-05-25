@@ -335,33 +335,89 @@ header [data-testid="stToolbar"] { visibility: hidden !important; }
 header [data-testid="stDecoration"] { visibility: hidden !important; }
 header [data-testid="stStatusWidget"] { visibility: hidden !important; }
 
-/* Sidebar collapse/expand toggle — always visible + styled */
+/* Sidebar collapse/expand toggle — fully visible icon + button */
 [data-testid="stSidebarCollapsedControl"] {
   visibility: visible !important;
+  opacity: 1 !important;
   display: flex !important;
   align-items: center !important;
+  justify-content: center !important;
   background: #131825 !important;
   border: 1px solid #2a3447 !important;
   border-radius: 6px !important;
-  padding: 6px 8px !important;
-  margin: 6px !important;
+  padding: 8px !important;
+  margin: 8px !important;
   cursor: pointer !important;
   z-index: 1000 !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
 }
 [data-testid="stSidebarCollapsedControl"]:hover {
   background: #1a2034 !important;
   border-color: #4c8bf5 !important;
 }
-[data-testid="stSidebarCollapsedControl"] svg,
+
+/* The icon inside — make sure SVG + Material Symbol both render in cobalt */
+[data-testid="stSidebarCollapsedControl"] svg {
+  width: 20px !important;
+  height: 20px !important;
+  color: #4c8bf5 !important;
+  fill: #4c8bf5 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg path,
+[data-testid="stSidebarCollapsedControl"] svg g {
+  fill: #4c8bf5 !important;
+  stroke: #4c8bf5 !important;
+}
 [data-testid="stSidebarCollapsedControl"] button {
   color: #4c8bf5 !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+[data-testid="stSidebarCollapsedControl"] [class*="material-symbol"],
+[data-testid="stSidebarCollapsedControl"] [data-testid*="Icon"] {
+  font-family: 'Material Symbols Rounded' !important;
+  font-size: 22px !important;
+  color: #4c8bf5 !important;
+  opacity: 1 !important;
 }
 
-/* The "close sidebar" button inside the sidebar */
+/* Text-arrow fallback — visible "›" appears if no SVG/Material icon renders */
+[data-testid="stSidebarCollapsedControl"]::after {
+  content: "›";
+  color: #4c8bf5;
+  font-size: 22px;
+  font-weight: 700;
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+}
+/* Show fallback if the inner button is empty or icon failed to render */
+[data-testid="stSidebarCollapsedControl"]:has(button:empty)::after,
+[data-testid="stSidebarCollapsedControl"]:not(:has(svg)):not(:has([class*="material"]))::after {
+  opacity: 1;
+}
+
+/* The "close sidebar" button inside the open sidebar */
 [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
 [data-testid="stSidebar"] button[kind="header"] {
   visibility: visible !important;
+  opacity: 1 !important;
   color: #4c8bf5 !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
+[data-testid="stSidebar"] button[kind="header"] svg {
+  color: #4c8bf5 !important;
+  fill: #4c8bf5 !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg path,
+[data-testid="stSidebar"] button[kind="header"] svg path {
+  fill: #4c8bf5 !important;
 }
 </style>
 """
