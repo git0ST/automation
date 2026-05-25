@@ -9,13 +9,31 @@ import httpx
 from datetime import datetime
 
 SERIES = {
-    "FEDFUNDS": ("Fed Funds Rate",    "%",     "monthly"),
-    "CPIAUCSL": ("CPI (YoY proxy)",   "index", "monthly"),
-    "UNRATE":   ("Unemployment Rate", "%",     "monthly"),
-    "T10Y2Y":   ("10Y-2Y Spread",     "pct",   "daily"),
-    "VIXCLS":   ("VIX",               "index", "daily"),
-    "GDPC1":    ("Real GDP",          "bil$",  "quarterly"),
-    "DGS10":    ("10Y Treasury",      "%",     "daily"),
+    # Rates + curve
+    "FEDFUNDS": ("Fed Funds Rate",       "%",     "monthly"),
+    "DFF":      ("Daily Fed Funds",      "%",     "daily"),
+    "DGS10":    ("10Y Treasury",         "%",     "daily"),
+    "DGS2":     ("2Y Treasury",          "%",     "daily"),
+    "T10Y2Y":   ("10Y-2Y Spread",        "pct",   "daily"),
+    "T10Y3M":   ("10Y-3M Spread",        "pct",   "daily"),
+    # Inflation
+    "CPIAUCSL": ("CPI (YoY proxy)",      "index", "monthly"),
+    "PCEPI":    ("PCE Price Index",      "index", "monthly"),
+    "T10YIE":   ("10Y Breakeven Infl.",  "%",     "daily"),
+    "DFII10":   ("10Y TIPS",             "%",     "daily"),
+    # Employment + growth
+    "UNRATE":   ("Unemployment Rate",    "%",     "monthly"),
+    "PAYEMS":   ("Nonfarm Payrolls",     "thsd",  "monthly"),
+    "ICSA":     ("Initial Jobless Claims","thsd", "weekly"),
+    "GDPC1":    ("Real GDP",             "bil$",  "quarterly"),
+    "INDPRO":   ("Industrial Production","index", "monthly"),
+    # Risk + sentiment
+    "VIXCLS":   ("VIX",                  "index", "daily"),
+    "DTWEXBGS": ("USD Trade-Weighted",   "index", "daily"),
+    # Credit / liquidity
+    "TEDRATE":  ("TED Spread",           "%",     "daily"),
+    "BAMLH0A0HYM2": ("HY OAS",           "pct",   "daily"),
+    "BAMLC0A0CM":   ("IG OAS",           "pct",   "daily"),
 }
 
 BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv"

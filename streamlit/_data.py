@@ -1,14 +1,4 @@
-"""
-INTL Data Layer — defensive data fetching with graceful fallbacks.
-
-Every loader here:
-  - Returns a known shape (never raises)
-  - Has clear empty-state semantics (None for missing, [] for empty list)
-  - Caches with appropriate TTL for the data type
-  - Has a fallback when the primary source is unavailable
-
-Used by all Streamlit pages to ensure consistent error handling.
-"""
+"""INTL Data Layer — defensive data fetching with graceful fallbacks."""
 from __future__ import annotations
 import os
 import streamlit as st
@@ -34,6 +24,29 @@ def _is_missing_table(err: Exception, table: str) -> bool:
     """Check if exception is the 'table not in schema cache' error."""
     msg = str(err)
     return table in msg and "schema cache" in msg
+
+
+# ── Sentiment aggregation (credibility-weighted) ─────────────────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_weighted_sentiment(limit: int = 200) -> dict:
+    """Aggregate sentiment across articles, weighted by source credibility."""
+    articles, _ = load_articles(limit=limit)
+    try:
+        from shared.credibility import weighted_sentiment
+        return weighted_sentiment(articles)
+    except Exception:
+        # Fallback: simple unweighted aggregation
+        bull = sum(1 for a in articles if a.get("sentiment_label") == "bullish")
+        bear = sum(1 for a in articles if a.get("sentiment_label") == "bearish")
+        total = max(len(articles), 1)
+        return {
+            "bullish_pct":    round(bull / total * 100, 1),
+            "bearish_pct":    round(bear / total * 100, 1),
+            "neutral_pct":    round((1 - (bull + bear) / total) * 100, 1),
+            "weighted_score": 0.0,
+            "n_items":        len(articles),
+        }
 
 
 # ── Articles (news feed) ─────────────────────────────────────────────────────
@@ -103,21 +116,16 @@ def load_market_snapshots(limit: int = 60) -> tuple[list, str]:
 
 # ── Regime + Risk (with live FRED fallback) ──────────────────────────────────
 
-# FRED series IDs the regime + risk engines expect.
-# IMPORTANT: detect_regime() and compute_risk() expect this dict keyed by
-# the **FRED series_id** (e.g. "T10Y2Y") with **raw float values**, not nested
-# {"value": ...} objects. Match what pipeline.macro_list_to_dict() produces.
+# FRED series IDs — keyed by series_id with raw float values to match
+# the format detect_regime() and compute_risk() expect.
 FRED_SERIES = [
-    "T10Y2Y",        # 10Y-2Y spread
-    "FEDFUNDS",      # Monthly fed funds rate (regime + risk both need this exact ID)
-    "DFF",           # Daily fed funds — secondary
-    "CPIAUCSL",      # CPI
-    "UNRATE",        # Unemployment
-    "VIXCLS",        # VIX
-    "DGS10",         # 10Y treasury
-    "T10YIE",        # 10Y breakeven inflation
-    "BAMLH0A0HYM2",  # ICE BofA HY OAS
-    "BAMLC0A0CM",    # ICE BofA IG OAS
+    "T10Y2Y", "T10Y3M",                  # yield curve
+    "FEDFUNDS", "DFF", "DGS10", "DGS2",  # rates
+    "CPIAUCSL", "PCEPI", "T10YIE",       # inflation
+    "UNRATE", "PAYEMS", "ICSA",          # labor
+    "VIXCLS", "DTWEXBGS",                # risk + FX
+    "BAMLH0A0HYM2", "BAMLC0A0CM", "TEDRATE",  # credit
+    "INDPRO", "GDPC1",                   # growth
 ]
 
 

@@ -1,18 +1,8 @@
-"""
-INTL — Intelligence Terminal · Overview Page
-Bloomberg/Aladdin-inspired professional trading dashboard.
-
-Design principles applied:
-  - Bloomberg: information density, tile-based layout, predictability
-  - Aladdin: regime + risk side-by-side, factor breakdown
-  - TradingView: IBM Plex Mono for numbers, Inter for UI, dark navy (not black)
-  - LSEG Workspace: customizable tile grid, AI-powered widgets
-"""
+"""INTL Intelligence Terminal — Overview page."""
 import os
 import sys
 from pathlib import Path
 
-# ── Path setup — make BOTH repo-root and projects/daily_digest importable ──
 ROOT = Path(__file__).resolve().parent.parent
 for p in (ROOT, ROOT / "projects" / "daily_digest"):
     sp = str(p)
@@ -36,10 +26,10 @@ st.set_page_config(
 
 # ── Apply unified theme ───────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _theme      import apply_theme, COLORS, REGIME_COLORS, status_pill
+from _theme      import apply_theme, COLORS, REGIME_COLORS, status_pill, KPI_HELP
 from _data       import (load_articles, load_signals, load_market_snapshots,
                          load_regime_risk, load_market_prices, supabase_client,
-                         check_setup_status)
+                         check_setup_status, load_weighted_sentiment)
 from _components import (ticker_card, render_ticker_grid, news_item_card,
                          source_badge, regime_card, TICKER_META)
 apply_theme()
@@ -51,8 +41,17 @@ apply_theme()
 
 def render_sidebar(regime: dict, risk: dict, source: str) -> None:
     with st.sidebar:
-        st.markdown("### 📊 INTL Terminal")
-        st.caption("v2.2 · Aladdin-inspired platform")
+        # Header with explicit collapse hint
+        col_title, col_close = st.columns([5, 1])
+        with col_title:
+            st.markdown("### 📊 INTL Terminal")
+            st.caption("v2.3 · Aladdin-inspired platform")
+        with col_close:
+            st.markdown(
+                '<div style="text-align:right;color:#5a6378;font-size:11px;margin-top:8px" '
+                'title="Use the « icon at the top to collapse the sidebar">«</div>',
+                unsafe_allow_html=True,
+            )
 
         # Data freshness pill
         if source == "supabase":
@@ -184,69 +183,58 @@ def main():
 
     st.divider()
 
-    # ── KPI strip — Bloomberg-style tile row ──────────────────────────────────
+    # KPI strip — tooltips explain each metric on hover
     articles, art_status = load_articles(limit=200)
     signals,  sig_status = load_signals(limit=50)
     market,   mkt_status = load_market_snapshots(limit=60)
+    sentiment            = load_weighted_sentiment(limit=200)
 
-    # Sentiment aggregation (defensive)
-    bull = sum(1 for a in articles if a.get("sentiment_label") == "bullish")
-    bear = sum(1 for a in articles if a.get("sentiment_label") == "bearish")
-    total = max(len(articles), 1)
-    bull_pct = round(bull / total * 100)
-    bear_pct = round(bear / total * 100)
+    bull_pct = sentiment.get("bullish_pct", 0)
+    bear_pct = sentiment.get("bearish_pct", 0)
+    srs      = risk.get("srs", 0) if risk else 0
+    level    = risk.get("level", "—") if risk else "—"
 
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        r_label = regime.get("label", "—") if regime else "—"
-        r_color = REGIME_COLORS.get(regime.get("regime", ""), "#888") if regime else "#888"
-        st.markdown(f"""
-        <div class="stMetric">
-          <div style="font-size:10px;color:#8b93a7;text-transform:uppercase;letter-spacing:.12em;font-weight:600;margin-bottom:6px">Market Regime</div>
-          <div style="font-size:18px;font-weight:600;color:{r_color}">{r_label}</div>
-          <div style="font-size:11px;color:#8b93a7;margin-top:4px;font-family:'IBM Plex Mono',monospace">
-            {regime.get("confidence_pct", 0):.0f}% conf
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            label="Market Regime",
+            value=(regime.get("label") if regime else "—"),
+            delta=f"{regime.get('confidence_pct', 0):.0f}% confidence" if regime else "no data",
+            delta_color="off",
+            help=KPI_HELP["market_regime"],
+        )
     with col2:
-        srs   = risk.get("srs", 0) if risk else 0
-        level = risk.get("level", "—") if risk else "—"
-        c = "#00d68f" if srs < 26 else "#ffaa00" if srs < 51 else "#ff8800" if srs < 76 else "#ff5773"
-        st.markdown(f"""
-        <div class="stMetric">
-          <div style="font-size:10px;color:#8b93a7;text-transform:uppercase;letter-spacing:.12em;font-weight:600;margin-bottom:6px">Systemic Risk</div>
-          <div style="font-size:22px;font-weight:600;color:{c};font-family:'IBM Plex Mono',monospace">{srs:.0f}<span style="font-size:11px;color:#8b93a7;font-weight:400">/100</span></div>
-          <div style="font-size:11px;color:{c};margin-top:4px">{level}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            label="Systemic Risk",
+            value=f"{srs:.0f} / 100",
+            delta=level,
+            delta_color="inverse" if srs >= 51 else "normal",
+            help=KPI_HELP["systemic_risk"],
+        )
     with col3:
-        st.markdown(f"""
-        <div class="stMetric">
-          <div style="font-size:10px;color:#8b93a7;text-transform:uppercase;letter-spacing:.12em;font-weight:600;margin-bottom:6px">News Sentiment</div>
-          <div style="display:flex;gap:10px;align-items:baseline">
-            <span style="font-size:18px;font-weight:600;color:#00d68f;font-family:'IBM Plex Mono',monospace">↑{bull_pct}%</span>
-            <span style="font-size:18px;font-weight:600;color:#ff5773;font-family:'IBM Plex Mono',monospace">↓{bear_pct}%</span>
-          </div>
-          <div style="font-size:11px;color:#8b93a7;margin-top:4px;font-family:'IBM Plex Mono',monospace">{len(articles)} articles</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            label="News Sentiment",
+            value=f"↑ {bull_pct}% / ↓ {bear_pct}%",
+            delta=f"{sentiment.get('n_items', 0)} articles · weighted",
+            delta_color="off",
+            help=KPI_HELP["news_sentiment"],
+        )
     with col4:
-        st.markdown(f"""
-        <div class="stMetric">
-          <div style="font-size:10px;color:#8b93a7;text-transform:uppercase;letter-spacing:.12em;font-weight:600;margin-bottom:6px">Alpha Signals</div>
-          <div style="font-size:22px;font-weight:600;color:#e6e9f0;font-family:'IBM Plex Mono',monospace">{len(signals)}</div>
-          <div style="font-size:11px;color:#8b93a7;margin-top:4px">insider · options · congress</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            label="Alpha Signals",
+            value=len(signals),
+            delta="insider · options · congress",
+            delta_color="off",
+            help=KPI_HELP["alpha_signals"],
+        )
     with col5:
-        st.markdown(f"""
-        <div class="stMetric">
-          <div style="font-size:10px;color:#8b93a7;text-transform:uppercase;letter-spacing:.12em;font-weight:600;margin-bottom:6px">Market Tickers</div>
-          <div style="font-size:22px;font-weight:600;color:#e6e9f0;font-family:'IBM Plex Mono',monospace">{len(market)}</div>
-          <div style="font-size:11px;color:#8b93a7;margin-top:4px">FRED + Yahoo Finance</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            label="Market Tickers",
+            value=len(market),
+            delta="FRED + Yahoo Finance",
+            delta_color="off",
+            help=KPI_HELP["market_tickers"],
+        )
 
     st.divider()
 

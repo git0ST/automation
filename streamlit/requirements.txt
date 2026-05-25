@@ -15,6 +15,7 @@ yfinance>=0.2.40
 # Numerics
 numpy>=1.26
 pandas>=2.1
+scipy>=1.11        # Cornish-Fisher VaR, statistical functions
 
 # Charts / visualization — Plotly for treemaps, heatmaps, interactive charts
 plotly>=5.20

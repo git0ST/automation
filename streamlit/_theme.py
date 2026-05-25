@@ -1,36 +1,25 @@
-"""
-INTL Design System — unified theme module.
+"""INTL Design System — unified theme for all pages.
 
-Inspired by:
-  - Bloomberg Terminal (information density, predictability)
-  - BlackRock Aladdin (factor + scenario panels)
-  - TradingView (typography pairing, dark navy palette)
-  - LSEG Workspace (customizable tile layout)
-
-Usage in each page:
-    from _theme import apply_theme
-    st.set_page_config(...)
-    apply_theme()
+Apply once per page after `st.set_page_config()`.
 """
 from __future__ import annotations
 import streamlit as st
 
 
-# ── Color tokens (TradingView-inspired) ──────────────────────────────────────
 COLORS = {
-    "bg":            "#0a0e1a",   # deep navy (NOT pure black — eye strain)
+    "bg":            "#0a0e1a",
     "bg_elevated":   "#0f1422",
     "surface":       "#131825",
     "surface_hover": "#1a2034",
     "border":        "#1f2937",
     "border_strong": "#2a3447",
-    "text":          "#e6e9f0",   # off-white (NOT pure #fff)
+    "text":          "#e6e9f0",
     "text_muted":    "#8b93a7",
     "text_dim":      "#5a6378",
-    "accent":        "#4c8bf5",   # cobalt — primary action
-    "bullish":       "#00d68f",   # vivid green
-    "bearish":       "#ff5773",   # red
-    "neutral":       "#ffaa00",   # amber
+    "accent":        "#4c8bf5",
+    "bullish":       "#00d68f",
+    "bearish":       "#ff5773",
+    "neutral":       "#ffaa00",
     "warning":       "#ff8800",
     "info":          "#4da6ff",
 }
@@ -44,38 +33,27 @@ REGIME_COLORS = {
 
 
 def apply_theme() -> None:
-    """Inject the INTL design system CSS into a Streamlit page.
-
-    Call AFTER st.set_page_config() and BEFORE any UI rendering.
-    Idempotent — safe to call multiple times per session.
-    """
+    """Inject the INTL design system CSS. Idempotent."""
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
-# ── The CSS itself ────────────────────────────────────────────────────────────
 _CSS = """
-<!-- Google Fonts: Inter (UI) + IBM Plex Mono (numbers) + Material Symbols
-     (Streamlit's bundled icon font sometimes fails on Streamlit Cloud) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,-50..200&display=swap" rel="stylesheet">
 
 <style>
-/* ═══════════ BASE LAYOUT ═══════════ */
-/* CRITICAL: do NOT apply font-family to [class*="st-"] — it overrides
-   Material Symbols icon fonts, causing literal "keyboard_double_arrow_left"
-   and "arrow_drop_down" text to appear instead of actual icons. */
-html, body, .stApp, [data-testid="stMarkdownContainer"], p, span, div, label, h1, h2, h3, h4, h5, h6, input, textarea, button {
+/* Base — preserve Material Symbols on icon spans */
+html, body, .stApp, [data-testid="stMarkdownContainer"],
+p, span, div, label, h1, h2, h3, h4, h5, h6, input, textarea, button {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
-/* Preserve Material Symbols font on icon elements */
 .material-symbols-rounded, .material-symbols-outlined, .material-icons,
-[class*="material-symbol"], [class*="MuiSvgIcon"],
-[data-testid="stIconMaterial"] {
-  font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
+[class*="material-symbol"], [data-testid="stIconMaterial"] {
+  font-family: 'Material Symbols Rounded', 'Material Symbols Outlined' !important;
   font-feature-settings: 'liga' !important;
 }
 
@@ -87,7 +65,7 @@ html, body, .stApp, [data-testid="stMarkdownContainer"], p, span, div, label, h1
   max-width: 100% !important;
 }
 
-/* ═══════════ TYPOGRAPHY ═══════════ */
+/* Typography hierarchy */
 h1 { font-weight: 700 !important; letter-spacing: -0.02em !important;
      color: #e6e9f0 !important; margin: 0.4rem 0 0.6rem 0 !important; }
 h2 { font-weight: 600 !important; letter-spacing: -0.01em !important;
@@ -98,18 +76,16 @@ h4 { font-weight: 500 !important; color: #c8cce0 !important;
      font-size: 0.95rem !important; text-transform: uppercase;
      letter-spacing: 0.08em !important; }
 
-p, span, div, label { color: #e6e9f0; }
-
-/* ALL numbers should be monospaced for instant readability */
+/* Numbers → IBM Plex Mono for tabular alignment */
 .stMetric div[data-testid="metric-container"] > div:nth-child(2),
 .stMetric div[data-testid="metric-container"] > div:nth-child(3),
-.stDataFrame, .stTable, code, pre, .number,
+.stDataFrame, .stTable, code, pre,
 [data-testid="stMetricValue"], [data-testid="stMetricDelta"] {
   font-family: 'IBM Plex Mono', 'SF Mono', Menlo, Consolas, monospace !important;
   font-feature-settings: 'tnum' 1, 'zero' 1;
 }
 
-/* ═══════════ METRIC CARDS — Bloomberg-style tiles ═══════════ */
+/* Metric cards */
 .stMetric {
   background: #131825;
   border: 1px solid #1f2937;
@@ -150,19 +126,34 @@ p, span, div, label { color: #e6e9f0; }
   white-space: nowrap !important;
 }
 
-/* Prevent any text inside cards/metrics from breaking layout */
-.stMetric *, .ticker-card *, .news-card * { box-sizing: border-box; }
-
-/* Delta arrows: green up / red down */
 [data-testid="stMetricDelta"] svg[data-testid="stMetricDeltaIcon-Up"] path { fill: #00d68f; }
 [data-testid="stMetricDelta"] svg[data-testid="stMetricDeltaIcon-Down"] path { fill: #ff5773; }
 
-/* ═══════════ SECTION DIVIDERS ═══════════ */
+/* Tooltip (help icon) — make it clearly clickable */
+[data-testid="stTooltipIcon"] {
+  color: #5a6378 !important;
+  transition: color 0.15s ease;
+}
+[data-testid="stTooltipIcon"]:hover { color: #4c8bf5 !important; }
+
+/* Tooltip content */
+[role="tooltip"] {
+  background: #1a2034 !important;
+  border: 1px solid #2a3447 !important;
+  color: #e6e9f0 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  border-radius: 6px !important;
+  padding: 10px 14px !important;
+  max-width: 320px !important;
+}
+
+/* Section dividers */
 hr { margin: 1.4rem 0 !important;
      border: none !important;
      border-top: 1px solid #1f2937 !important; }
 
-/* ═══════════ DATAFRAMES / TABLES ═══════════ */
+/* Dataframes */
 .stDataFrame { border: 1px solid #1f2937; border-radius: 6px;
                overflow: hidden; margin: 0.6rem 0; }
 
@@ -179,18 +170,16 @@ div[data-testid="stDataFrame"] thead tr th {
   font-weight: 600 !important;
   text-transform: uppercase !important;
   letter-spacing: 0.08em !important;
-  border-bottom: 1px solid #1f2937 !important;
 }
 
 div[data-testid="stDataFrame"] tbody tr td {
   background: #131825 !important;
   color: #e6e9f0 !important;
-  border-bottom: 1px solid #1a2034 !important;
 }
 
 div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !important; }
 
-/* ═══════════ EXPANDERS / CARDS ═══════════ */
+/* Expanders */
 .stExpander {
   background: #131825 !important;
   border: 1px solid #1f2937 !important;
@@ -206,9 +195,8 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 }
 
 .stExpander > details > summary:hover { color: #e6e9f0 !important; }
-.stExpander > details[open] > summary { border-bottom: 1px solid #1f2937; }
 
-/* ═══════════ BUTTONS ═══════════ */
+/* Buttons */
 .stButton button {
   background: #131825 !important;
   border: 1px solid #2a3447 !important;
@@ -220,7 +208,6 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 }
 .stButton button:hover {
   border-color: #4c8bf5 !important;
-  color: #ffffff !important;
   background: #1a2034 !important;
 }
 .stButton button[kind="primary"] {
@@ -230,10 +217,9 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 }
 .stButton button[kind="primary"]:hover {
   background: #3a78e0 !important;
-  border-color: #3a78e0 !important;
 }
 
-/* ═══════════ TABS ═══════════ */
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
   gap: 4px !important;
   background: #0f1422;
@@ -254,21 +240,21 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   color: #e6e9f0 !important;
 }
 
-/* ═══════════ INPUTS ═══════════ */
-.stTextInput input, .stNumberInput input, .stSelectbox > div > div, .stMultiSelect > div > div {
+/* Inputs */
+.stTextInput input, .stNumberInput input,
+.stSelectbox > div > div, .stMultiSelect > div > div {
   background: #131825 !important;
   border: 1px solid #1f2937 !important;
   border-radius: 5px !important;
   color: #e6e9f0 !important;
   font-family: 'IBM Plex Mono', monospace !important;
 }
-
 .stTextInput input:focus, .stNumberInput input:focus {
   border-color: #4c8bf5 !important;
   box-shadow: 0 0 0 1px #4c8bf5 !important;
 }
 
-/* ═══════════ SIDEBAR ═══════════ */
+/* Sidebar */
 [data-testid="stSidebar"] {
   background: #0a0e1a !important;
   border-right: 1px solid #1f2937 !important;
@@ -290,7 +276,6 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   font-weight: 600;
   font-size: 13px;
   letter-spacing: 0.04em;
-  font-family: 'Inter', sans-serif;
 }
 
 .srs-bar-container {
@@ -301,7 +286,7 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 }
 .srs-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
 
-/* ═══════════ INFO / WARNING / ERROR BOXES ═══════════ */
+/* Alerts */
 [data-testid="stAlert"] {
   border-radius: 6px !important;
   border-left-width: 3px !important;
@@ -309,10 +294,10 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   background: #131825 !important;
 }
 
-/* ═══════════ PROGRESS BAR ═══════════ */
+/* Progress */
 .stProgress > div > div > div > div { background-color: #4c8bf5 !important; }
 
-/* ═══════════ MARKDOWN ENHANCEMENTS ═══════════ */
+/* Markdown links + inline code */
 .stMarkdown code {
   background: #1a2034;
   color: #ffaa00;
@@ -321,11 +306,10 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   font-size: 0.85em;
   font-family: 'IBM Plex Mono', monospace;
 }
-
 .stMarkdown a { color: #4c8bf5 !important; text-decoration: none; }
 .stMarkdown a:hover { color: #4da6ff !important; text-decoration: underline; }
 
-/* ═══════════ CUSTOM CLASSES ═══════════ */
+/* Custom utility classes */
 .kpi-positive { color: #00d68f !important; font-weight: 600; }
 .kpi-negative { color: #ff5773 !important; font-weight: 600; }
 .kpi-neutral  { color: #8b93a7 !important; }
@@ -342,43 +326,42 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 .status-pill.stale  { background: rgba(255, 170, 0, 0.15);  color: #ffaa00; }
 .status-pill.error  { background: rgba(255, 87, 115, 0.15); color: #ff5773; }
 
-/* ═══════════ PLOTLY CONTAINER ═══════════ */
 .js-plotly-plot, .plotly { background: transparent !important; }
 
-/* ═══════════ HIDE STREAMLIT BRANDING (but keep sidebar toggle!) ═══════════ */
+/* Hide Streamlit chrome — keep sidebar toggle visible */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-
-/* DO NOT hide the entire header — that hides the sidebar reopen button.
-   Instead, hide only the title bar's right-side menu/toolbar items but
-   preserve the left-side sidebar toggle. */
 header [data-testid="stToolbar"] { visibility: hidden !important; }
 header [data-testid="stDecoration"] { visibility: hidden !important; }
 header [data-testid="stStatusWidget"] { visibility: hidden !important; }
 
-/* Sidebar toggle button — make it explicit and well-styled when sidebar is closed */
+/* Sidebar collapse/expand toggle — always visible + styled */
 [data-testid="stSidebarCollapsedControl"] {
   visibility: visible !important;
   display: flex !important;
-  background: #131825;
-  border: 1px solid #2a3447;
-  border-radius: 6px;
-  padding: 6px;
+  align-items: center !important;
+  background: #131825 !important;
+  border: 1px solid #2a3447 !important;
+  border-radius: 6px !important;
+  padding: 6px 8px !important;
+  margin: 6px !important;
+  cursor: pointer !important;
+  z-index: 1000 !important;
+}
+[data-testid="stSidebarCollapsedControl"]:hover {
+  background: #1a2034 !important;
+  border-color: #4c8bf5 !important;
 }
 [data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="stSidebarCollapsedControl"] button { color: #4c8bf5 !important; }
+[data-testid="stSidebarCollapsedControl"] button {
+  color: #4c8bf5 !important;
+}
 
-.viewerBadge_container__1QSob { display: none !important; }
-
-/* ═══════════ EXPANDER ICON FIX ═══════════ */
-/* Ensure the expand/collapse arrow renders as an icon, not literal "arrow_drop_down" */
-.stExpander summary > svg,
-.stExpander summary [data-testid*="Icon"],
-details summary::-webkit-details-marker { display: inline-block !important; }
-
-/* Prevent any icon-font fallback text from rendering visibly */
-.stExpander summary, button {
-  font-feature-settings: 'liga' !important;
+/* The "close sidebar" button inside the sidebar */
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebar"] button[kind="header"] {
+  visibility: visible !important;
+  color: #4c8bf5 !important;
 }
 </style>
 """
@@ -391,23 +374,48 @@ def status_pill(label: str, kind: str = "live") -> str:
     return f'<span class="status-pill {kind}">{label}</span>'
 
 
-def section_header(title: str, subtitle: str = "", icon: str = "") -> None:
-    """Render a section header with optional subtitle."""
-    header = f"### {icon} {title}" if icon else f"### {title}"
-    st.markdown(header)
-    if subtitle:
-        st.caption(subtitle)
-
-
-def render_kpi_grid(kpis: list[dict], cols: int = 4) -> None:
-    """Render a grid of KPI tiles. Each dict: {label, value, delta, delta_color}."""
-    columns = st.columns(cols)
-    for i, kpi in enumerate(kpis):
-        with columns[i % cols]:
-            st.metric(
-                label=kpi["label"],
-                value=kpi["value"],
-                delta=kpi.get("delta"),
-                delta_color=kpi.get("delta_color", "normal"),
-                help=kpi.get("help"),
-            )
+# Centralized KPI tooltips — single source of truth for hover explanations
+KPI_HELP = {
+    "market_regime":
+        "Aladdin-inspired classification of macro environment into one of 4 quadrants "
+        "(Goldilocks / Reflation / Stagflation / Deflation), based on growth + inflation signals.",
+    "systemic_risk":
+        "Composite 0-100 risk score (SRS) blending VIX, yield curve, credit spreads, "
+        "fear & greed, and labor market signals. Higher = more systemic stress.",
+    "news_sentiment":
+        "Bull/bear % of 200 most recent articles, source-credibility weighted "
+        "(Bloomberg/Reuters > general news > social).",
+    "alpha_signals":
+        "Non-public alpha events: SEC EDGAR insider trades, unusual options flow, "
+        "Congressional trades, FINRA short interest, credit spread shifts.",
+    "market_tickers":
+        "Number of ticker snapshots loaded from FRED + Yahoo Finance for macro indicators.",
+    "var_95":
+        "Value at Risk (95%): The 1-day loss exceeded only 5% of trading days, "
+        "estimated from historical daily returns (no normality assumption).",
+    "var_99":
+        "Value at Risk (99%): Tail loss estimate — exceeded only 1% of trading days.",
+    "cvar_95":
+        "Conditional VaR / Expected Shortfall: Average loss in the worst 5% of days. "
+        "More robust than VaR for tail-risk reporting.",
+    "max_drawdown":
+        "Peak-to-trough decline over the period. Captures worst historical loss path.",
+    "sharpe":
+        "Sharpe ratio: excess return per unit of volatility. ≥1 is good, ≥2 is excellent.",
+    "sortino":
+        "Sortino ratio: like Sharpe but penalizes only downside volatility — better for asymmetric returns.",
+    "annual_vol":
+        "Annualised volatility = daily std × √252. Higher = more dispersed returns.",
+    "beta":
+        "Sensitivity to SPY (S&P 500). β=1 moves with market; β>1 amplifies; β<0 inverse-correlated.",
+    "portfolio_var":
+        "Portfolio-level VaR using EWMA-weighted covariance for adaptive risk estimation.",
+    "portfolio_sharpe":
+        "Weighted-portfolio Sharpe ratio over the lookback period.",
+    "confidence":
+        "How strongly the macro signals agree on the regime classification (0-100%). "
+        "Higher = stronger consensus from yield curve, VIX, CPI, unemployment.",
+    "transition_risk":
+        "Probability of regime shift in coming weeks, based on signal proximity to "
+        "quadrant boundaries (low/medium/high).",
+}
