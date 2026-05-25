@@ -19,8 +19,9 @@ import streamlit as st
 st.set_page_config(page_title="AI Research · INTL", page_icon="🔬", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme import apply_theme, status_pill
-from _data  import load_articles, load_signals
+from _theme      import apply_theme, status_pill
+from _data       import load_articles, load_signals
+from _components import news_item_card, source_badge
 apply_theme()
 
 

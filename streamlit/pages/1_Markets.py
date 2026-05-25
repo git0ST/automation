@@ -19,7 +19,8 @@ import streamlit as st
 st.set_page_config(page_title="Markets · INTL", page_icon="📈", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme import apply_theme, COLORS
+from _theme      import apply_theme, COLORS
+from _components import render_ticker_grid, ticker_card, TICKER_META
 apply_theme()
 
 
@@ -97,19 +98,33 @@ def main():
         st.error("Market data unavailable — Yahoo Finance may be rate-limited. Click Refresh to retry.")
         return
 
-    # ── Tabs: Heatmap | Table | Compare ───────────────────────────────────────
-    th, tt, tc, tm = st.tabs(["🔥 Heatmap", "📋 Table", "📊 Compare", "🚀 Top Movers"])
+    # ── Tabs: Cards | Heatmap | Table | Compare | Movers ─────────────────────
+    tab_cards, tab_heat, tab_table, tab_compare, tab_movers = st.tabs([
+        "🃏 Cards", "🔥 Heatmap", "📋 Table", "📊 Compare", "🚀 Top Movers"
+    ])
 
-    with th:
+    with tab_cards:
+        # Professional ticker cards with logos
+        card_data = {
+            ticker: {
+                "price":      d["price"],
+                "change_pct": d.get("chg_1d", 0),
+                "volume":     d.get("volume"),
+            }
+            for ticker, d in data.items()
+        }
+        render_ticker_grid(card_data, cols=4)
+
+    with tab_heat:
         _render_heatmap(data, sector)
 
-    with tt:
+    with tab_table:
         _render_price_table(data)
 
-    with tc:
+    with tab_compare:
         _render_compare_chart(data, period)
 
-    with tm:
+    with tab_movers:
         _render_top_movers(data)
 
     st.divider()
@@ -308,34 +323,35 @@ def _render_compare_chart(data: dict, period: str):
 
 
 def _render_top_movers(data: dict):
-    """Top winners + losers."""
+    """Top winners + losers with full company names + logos."""
     movers = sorted(data.items(), key=lambda x: x[1].get("chg_1d", 0), reverse=True)
+
+    def _mover_row(tk, d, positive):
+        meta = TICKER_META.get(tk, {})
+        name = meta.get("name", tk)
+        chg = d.get("chg_1d", 0)
+        color = "#00d68f" if positive else "#ff5773"
+        return (
+            f'<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:14px;'
+            f'align-items:center;padding:12px 14px;background:#131825;border:1px solid #1f2937;'
+            f'border-radius:6px;margin-bottom:8px">'
+            f'  <div style="font-weight:700;font-size:13px;color:#e6e9f0;min-width:60px">{tk}</div>'
+            f'  <div style="color:#8b93a7;font-size:12px;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{name}</div>'
+            f'  <div style="font-family:IBM Plex Mono,monospace;font-size:13px;color:#e6e9f0">${d["price"]:,.2f}</div>'
+            f'  <div style="color:{color};font-family:IBM Plex Mono,monospace;font-weight:700;font-size:13px;min-width:70px;text-align:right">{chg:+.2f}%</div>'
+            f'</div>'
+        )
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("##### 🚀 Top Gainers (1D)")
         for tk, d in movers[:5]:
-            chg = d.get("chg_1d", 0)
-            st.markdown(
-                f"<div style='display:flex;justify-content:space-between;padding:8px 12px;background:#131825;border:1px solid #1f2937;border-radius:5px;margin-bottom:6px'>"
-                f"<span style='font-weight:600'>{tk}</span>"
-                f"<span style='font-family:IBM Plex Mono,monospace'>${d['price']:,.2f}</span>"
-                f"<span style='color:#00d68f;font-family:IBM Plex Mono,monospace;font-weight:600'>{chg:+.2f}%</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(_mover_row(tk, d, True), unsafe_allow_html=True)
     with c2:
         st.markdown("##### 📉 Top Decliners (1D)")
         for tk, d in movers[-5:][::-1]:
-            chg = d.get("chg_1d", 0)
-            st.markdown(
-                f"<div style='display:flex;justify-content:space-between;padding:8px 12px;background:#131825;border:1px solid #1f2937;border-radius:5px;margin-bottom:6px'>"
-                f"<span style='font-weight:600'>{tk}</span>"
-                f"<span style='font-family:IBM Plex Mono,monospace'>${d['price']:,.2f}</span>"
-                f"<span style='color:#ff5773;font-family:IBM Plex Mono,monospace;font-weight:600'>{chg:+.2f}%</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(_mover_row(tk, d, False), unsafe_allow_html=True)
 
 
 main()

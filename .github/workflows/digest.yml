@@ -18,11 +18,19 @@ on:
         description: 'Comma-separated sources (blank = all 17 sources)'
         required: false
         default: ''
+      verify_writes:
+        description: 'Verify Supabase rows after run'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     env:
       SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
@@ -31,54 +39,88 @@ jobs:
       GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
       GOOGLE_API_KEY:       ${{ secrets.GOOGLE_API_KEY }}
       LLM_PROVIDER:         cloud
+      PYTHONUNBUFFERED:     "1"
 
     steps:
+      # ── Bumped to v5 (Node.js 24 compatible) — fixes Node 20 deprecation warning ──
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Verify required secrets are set
+        run: |
+          set -e
+          missing=()
+          [ -z "${SUPABASE_URL:-}" ]         && missing+=("SUPABASE_URL")
+          [ -z "${SUPABASE_SERVICE_KEY:-}" ] && missing+=("SUPABASE_SERVICE_KEY")
+          [ -z "${SUPABASE_ANON_KEY:-}" ]    && missing+=("SUPABASE_ANON_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            echo "Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          # GROQ_API_KEY is optional but recommended
+          if [ -z "${GROQ_API_KEY:-}" ]; then
+            echo "::warning::GROQ_API_KEY not set — AI analysis will be skipped (rule-based fallback)"
+          fi
+          echo "✓ All required secrets present"
+
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          set -e
+          pip install --upgrade pip wheel setuptools
+          # Pin to stable versions; lockfile-like for reproducibility
           pip install \
-            httpx \
-            fastapi \
-            uvicorn \
-            python-dotenv \
-            supabase \
-            vaderSentiment \
-            praw \
-            feedparser \
-            yfinance \
-            fear-and-greed \
-            beautifulsoup4 \
-            pandas \
-            numpy \
-            groq \
-            google-generativeai
+            'httpx>=0.27,<1' \
+            'fastapi>=0.110,<1' \
+            'uvicorn[standard]>=0.27,<1' \
+            'python-dotenv>=1.0' \
+            'supabase>=2.4,<3' \
+            'vaderSentiment>=3.3' \
+            'praw>=7.7' \
+            'feedparser>=6.0' \
+            'yfinance>=0.2.40' \
+            'fear-and-greed>=0.4' \
+            'beautifulsoup4>=4.12' \
+            'pandas>=2.1,<3' \
+            'numpy>=1.26,<3' \
+            'groq>=0.9' \
+            'google-generativeai>=0.7' \
+            'lxml>=5.0' \
+            'requests>=2.31'
+          echo ""
+          echo "── Key versions ──"
+          pip list 2>/dev/null | grep -iE "supabase|yfinance|groq|pandas|numpy|httpx"
 
       - name: Run intelligence pipeline
+        id: pipeline
         run: |
           python - <<'PYEOF'
-          import asyncio, sys, os
+          import asyncio, sys, os, json, traceback
           from pathlib import Path
 
           ROOT = Path(".")
           sys.path.insert(0, str(ROOT))
           sys.path.insert(0, str(ROOT / "projects" / "daily_digest"))
 
-          from sources import ALL_SOURCES
-          from agents.pipeline import run_pipeline
+          try:
+              from sources import ALL_SOURCES
+              from agents.pipeline import run_pipeline
+          except Exception as e:
+              print(f"::error::Import failure: {e}")
+              traceback.print_exc()
+              sys.exit(1)
 
           async def main():
-              run_ai = os.getenv("INPUT_RUN_AI","false").lower() == "true"
-              src_override = os.getenv("INPUT_SOURCES","").strip()
-              sources = [s.strip() for s in src_override.split(",") if s.strip()] if src_override else ALL_SOURCES
+              run_ai = os.getenv("INPUT_RUN_AI", "false").lower() == "true"
+              src_override = os.getenv("INPUT_SOURCES", "").strip()
+              sources = ([s.strip() for s in src_override.split(",") if s.strip()]
+                         if src_override else ALL_SOURCES)
 
               limits = {
                   "hackernews":    15, "arxiv":       12,
@@ -92,8 +134,17 @@ jobs:
                   "credit":         8,
               }
 
-              print(f"Running pipeline: {len(sources)} sources, run_ai={run_ai}")
-              result = await run_pipeline(sources=sources, limits=limits, run_ai=run_ai, store=True)
+              print(f"┏━━━ Pipeline start ━━━┓")
+              print(f"  Sources: {len(sources)} ({', '.join(sources[:6])}{'...' if len(sources)>6 else ''})")
+              print(f"  AI: {run_ai} (LLM_PROVIDER={os.getenv('LLM_PROVIDER')})")
+              print(f"━━━━━━━━━━━━━━━━━━━━━━━━")
+              try:
+                  result = await run_pipeline(sources=sources, limits=limits,
+                                              run_ai=run_ai, store=True)
+              except Exception as e:
+                  print(f"::error::Pipeline crashed: {e}")
+                  traceback.print_exc()
+                  sys.exit(1)
 
               meta    = result.get("run_meta", {})
               sent    = result.get("sentiment", {})
@@ -101,22 +152,80 @@ jobs:
               store   = result.get("store_stats", {})
               fs      = result.get("fetch_stats", {})
 
-              print(f"Items:    {meta.get('total_clean')} / {meta.get('total_raw')} raw")
-              print(f"Signals:  {len(signals)}")
-              print(f"Sentiment:{sent.get('bullish_pct')}% bull / {sent.get('bearish_pct')}% bear")
-              print(f"Alerts:   {len(result.get('alerts',[]))}")
-              print(f"Supabase: {store}")
-              print("\nSource breakdown:")
+              print()
+              print("━━━━━━━━━━ RESULTS ━━━━━━━━━━")
+              print(f"  Items:    {meta.get('total_clean'):>4} / {meta.get('total_raw')} raw")
+              print(f"  Signals:  {len(signals):>4}")
+              print(f"  Sentiment: ↑{sent.get('bullish_pct')}% bull · ↓{sent.get('bearish_pct')}% bear")
+              print(f"  Alerts:   {len(result.get('alerts', [])):>4}")
+              print(f"  Store:    {store}")
+              print()
+              print("━━━━━━━━━━ SOURCES ━━━━━━━━━━")
               for src, stat in sorted(fs.items()):
                   ok = "✓" if "ERROR" not in str(stat) else "✗"
                   print(f"  {ok} {src:14s}: {stat}")
 
+              # Emit summary for next step
+              summary = {
+                  "items": meta.get("total_clean", 0),
+                  "signals": len(signals),
+                  "stored": store,
+              }
+              with open("pipeline_summary.json", "w") as f:
+                  json.dump(summary, f)
+              # Set output for GitHub Step Summary
+              with open(os.getenv("GITHUB_OUTPUT", "/dev/null"), "a") as f:
+                  f.write(f"items={meta.get('total_clean', 0)}\n")
+                  f.write(f"signals={len(signals)}\n")
+
           asyncio.run(main())
           PYEOF
         env:
-          INPUT_RUN_AI:  ${{ github.event.inputs.run_ai || 'false' }}
+          INPUT_RUN_AI:  ${{ github.event.inputs.run_ai || 'true' }}
           INPUT_SOURCES: ${{ github.event.inputs.sources || '' }}
 
-      - name: Report summary
+      - name: Verify data landed in Supabase
+        if: ${{ github.event.inputs.verify_writes != 'false' }}
+        run: |
+          python - <<'PYEOF'
+          import os, sys
+          from supabase import create_client
+
+          url = os.environ["SUPABASE_URL"]
+          key = os.environ["SUPABASE_SERVICE_KEY"]
+          client = create_client(url, key)
+
+          tables = ["articles", "signals", "regime_snapshots", "risk_scores",
+                    "market_snapshots", "credit_spreads"]
+          print()
+          print("━━━━━━━━━━ SUPABASE VERIFY ━━━━━━━━━━")
+          for t in tables:
+              try:
+                  r = client.table(t).select("id", count="exact", head=True).execute()
+                  count = r.count if hasattr(r, "count") else "?"
+                  status = "✓" if (count or 0) > 0 else "○"
+                  print(f"  {status} {t:25s} {count:>6} rows")
+              except Exception as e:
+                  msg = str(e)
+                  if "schema cache" in msg:
+                      print(f"  ✗ {t:25s} TABLE MISSING — run migration")
+                  else:
+                      print(f"  ✗ {t:25s} ERROR — {msg[:60]}")
+          PYEOF
+
+      - name: Pipeline summary
         if: always()
-        run: echo "Pipeline completed $(date -u '+%Y-%m-%d %H:%M UTC')"
+        run: |
+          echo "## 📊 Pipeline Run Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run time:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f pipeline_summary.json ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat pipeline_summary.json >> $GITHUB_STEP_SUMMARY
+            echo '' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Dashboard:** https://automation-crasnag.streamlit.app" >> $GITHUB_STEP_SUMMARY

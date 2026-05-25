@@ -36,10 +36,12 @@ st.set_page_config(
 
 # ── Apply unified theme ───────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _theme import apply_theme, COLORS, REGIME_COLORS, status_pill
-from _data  import (load_articles, load_signals, load_market_snapshots,
-                    load_regime_risk, load_market_prices, supabase_client,
-                    check_setup_status)
+from _theme      import apply_theme, COLORS, REGIME_COLORS, status_pill
+from _data       import (load_articles, load_signals, load_market_snapshots,
+                         load_regime_risk, load_market_prices, supabase_client,
+                         check_setup_status)
+from _components import (ticker_card, render_ticker_grid, news_item_card,
+                         source_badge, regime_card, TICKER_META)
 apply_theme()
 
 
@@ -248,7 +250,7 @@ def main():
 
     st.divider()
 
-    # ── Live Markets — 4×4 grid with full price visibility ───────────────────
+    # ── Live Markets — professional ticker cards with logos ─────────────────
     st.markdown("#### 📈 Live Markets")
     WATCHLIST = (
         "^GSPC", "^IXIC", "^DJI",  "^VIX",
@@ -260,98 +262,67 @@ def main():
         mkt = load_market_prices(WATCHLIST)
 
     if mkt:
-        mkt_items = list(mkt.items())
-        for row_start in range(0, len(mkt_items), 4):
-            row_items = mkt_items[row_start:row_start + 4]
-            cols = st.columns(4)
-            for col, (ticker, d) in zip(cols, row_items):
-                with col:
-                    delta_color = "normal" if d["change_pct"] >= 0 else "inverse"
-                    st.metric(
-                        label=ticker,
-                        value=f"${d['price']:,.2f}",
-                        delta=f"{d['change_pct']:+.2f}%",
-                        delta_color=delta_color,
-                    )
+        render_ticker_grid(mkt, cols=4)
     else:
         st.warning("Market data unavailable — yfinance may be rate-limited. Try Refresh.")
 
     st.divider()
 
-    # ── Regime details (when available) ──────────────────────────────────────
+    # ── Regime card — professional, comprehensive ────────────────────────────
     if regime:
-        with st.expander("🌐 Market Regime Analysis", expanded=True):
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                r_color = REGIME_COLORS.get(regime.get("regime", ""), "#888")
-                st.markdown(f"""
-                <div style="font-size:20px;font-weight:600;color:{r_color}">{regime.get('label', '—')}</div>
-                <div style="color:#8b93a7;margin-top:8px;line-height:1.5">{regime.get('description', '—')}</div>
-                """, unsafe_allow_html=True)
-                st.metric("Confidence",      f"{regime.get('confidence_pct', 0):.0f}%")
-                st.metric("Transition Risk", regime.get("transition_risk", "—").upper())
-            with c2:
-                if regime.get("favors"):
-                    st.markdown("**↑ Favors:**  " + " · ".join(regime["favors"]))
-                if regime.get("avoids"):
-                    st.markdown("**↓ Avoids:**  " + " · ".join(regime["avoids"]))
-                g = regime.get("growth_score", 0)
-                i = regime.get("inflation_score", 0)
-                st.progress(min(max((g + 1) / 2, 0), 1), text=f"Growth axis: {g:+.3f}")
-                st.progress(min(max((i + 1) / 2, 0), 1), text=f"Inflation axis: {i:+.3f}")
+        st.markdown("#### 🌐 Market Regime")
+        st.markdown(regime_card(regime), unsafe_allow_html=True)
 
     st.divider()
 
-    # ── News feed + Signals side panel ────────────────────────────────────────
+    # ── News feed + Signals side panel ───────────────────────────────────────
     if articles:
         col_news, col_side = st.columns([3, 2])
 
         with col_news:
-            with st.expander(f"📰 Top Intelligence Feed · {len(articles)} items", expanded=True):
-                for it in articles[:25]:
-                    sent = it.get("sentiment_label") or "neutral"
-                    sentiment_icon = "▲" if sent == "bullish" else "▼" if sent == "bearish" else "·"
-                    sent_color = "#00d68f" if sent == "bullish" else "#ff5773" if sent == "bearish" else "#8b93a7"
-                    src = (it.get("source") or "?").upper()[:4]
-                    title = (it.get("title") or "—")[:90]
-                    url   = it.get("url") or "#"
-                    score = it.get("terminal_score") or 0
-                    st.markdown(
-                        f"<span style='color:{sent_color};font-weight:600'>{sentiment_icon}</span> "
-                        f"<code>{src}</code> [{title}]({url}) "
-                        f"<span style='color:#5a6378;font-size:11px;font-family:IBM Plex Mono,monospace'>{score:.0f}pts</span>",
-                        unsafe_allow_html=True,
-                    )
-                    if it.get("preview"):
-                        st.caption(it["preview"][:160])
+            st.markdown(f"#### 📰 Top Intelligence Feed · {len(articles)} items")
+            for it in articles[:20]:
+                st.markdown(news_item_card(it), unsafe_allow_html=True)
 
         with col_side:
             # Signals panel
             if signals:
-                with st.expander(f"⚡ Alpha Signals · {len(signals)}", expanded=True):
-                    label_map = {"edgar": "SEC", "options": "OPTS", "congress": "CONG", "finra": "SHORT"}
-                    for sig in signals[:12]:
-                        s_label = label_map.get(sig.get("source"), (sig.get("source") or "?").upper()[:5])
-                        s_sent  = sig.get("sentiment_label") or "neutral"
-                        s_icon  = "▲" if s_sent == "bullish" else "▼" if s_sent == "bearish" else "—"
-                        s_color = "#00d68f" if s_sent == "bullish" else "#ff5773" if s_sent == "bearish" else "#8b93a7"
-                        st.markdown(
-                            f"<span style='color:{s_color}'>{s_icon}</span> "
-                            f"<code>{s_label}</code> {(sig.get('title') or '—')[:48]}",
-                            unsafe_allow_html=True,
-                        )
-            elif sig_status == "missing":
-                with st.expander("⚡ Alpha Signals", expanded=True):
-                    st.caption("Signals table missing — run migration 002")
-            else:
-                with st.expander("⚡ Alpha Signals · Pending", expanded=True):
-                    st.markdown("**No signals yet.**")
-                    st.caption("Trigger pipeline to populate insider/options/congress data.")
-                    st.link_button(
-                        "🚀 Run pipeline",
-                        "https://github.com/git0ST/automation/actions/workflows/digest.yml",
-                        use_container_width=True,
+                st.markdown(f"#### ⚡ Alpha Signals · {len(signals)}")
+                label_map = {"edgar": "SEC", "options": "OPTS", "congress": "CONG",
+                             "finra": "SHORT", "credit": "CREDIT"}
+                for sig in signals[:15]:
+                    s_sent  = sig.get("sentiment_label") or "neutral"
+                    s_icon  = "▲" if s_sent == "bullish" else "▼" if s_sent == "bearish" else "—"
+                    s_color = "#00d68f" if s_sent == "bullish" else "#ff5773" if s_sent == "bearish" else "#8b93a7"
+                    src_html = source_badge(sig.get("source") or "?")
+                    title    = (sig.get("title") or "—")[:60]
+                    st.markdown(
+                        f'<div style="background:#131825;border:1px solid #1f2937;'
+                        f'border-radius:5px;padding:8px 12px;margin-bottom:6px">'
+                        f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+                        f'<span style="color:{s_color};font-weight:700">{s_icon}</span>'
+                        f'{src_html}'
+                        f'</div>'
+                        f'<div style="color:#c8cce0;font-size:12px;line-height:1.4">{title}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
                     )
+            elif sig_status == "missing":
+                st.markdown("#### ⚡ Alpha Signals")
+                st.caption("Signals table missing — run migration 002")
+            else:
+                st.markdown("#### ⚡ Alpha Signals · Pending")
+                st.info(
+                    "**No signals yet.** Trigger the pipeline to populate "
+                    "insider/options/congress data.",
+                    icon="📭",
+                )
+                st.link_button(
+                    "🚀 Run pipeline",
+                    "https://github.com/git0ST/automation/actions/workflows/digest.yml",
+                    use_container_width=True,
+                    type="primary",
+                )
     else:
         # Empty state — clear CTA
         st.info(

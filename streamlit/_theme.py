@@ -102,32 +102,44 @@ p, span, div, label { color: #e6e9f0; }
   background: #131825;
   border: 1px solid #1f2937;
   border-radius: 6px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   margin-bottom: 0.6rem;
   transition: border-color 0.15s ease;
+  min-height: 90px;
+  overflow: hidden;
 }
 .stMetric:hover { border-color: #2a3447; }
 
 .stMetric label, [data-testid="stMetricLabel"] {
   color: #8b93a7 !important;
   font-size: 10px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
   letter-spacing: 0.12em !important;
   text-transform: uppercase !important;
-  margin-bottom: 4px !important;
+  margin-bottom: 6px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
 [data-testid="stMetricValue"] {
   font-size: 22px !important;
   font-weight: 600 !important;
   color: #e6e9f0 !important;
-  line-height: 1.2 !important;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
 [data-testid="stMetricDelta"] {
   font-size: 12px !important;
   font-weight: 500 !important;
+  white-space: nowrap !important;
 }
+
+/* Prevent any text inside cards/metrics from breaking layout */
+.stMetric *, .ticker-card *, .news-card * { box-sizing: border-box; }
 
 /* Delta arrows: green up / red down */
 [data-testid="stMetricDelta"] svg[data-testid="stMetricDeltaIcon-Up"] path { fill: #00d68f; }
