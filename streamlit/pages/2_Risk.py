@@ -150,13 +150,49 @@ def main():
                     if not df.empty:
                         st.dataframe(df.set_index("Ticker"), use_container_width=True)
 
-                # Correlation matrix
+                # Correlation matrix — Plotly heatmap (no matplotlib dependency)
                 corr = result.get("correlation")
                 if corr:
-                    st.subheader("Correlation Matrix")
+                    st.subheader("🔥 Correlation Matrix")
                     import pandas as pd
                     corr_df = pd.DataFrame(corr).round(3)
-                    st.dataframe(corr_df.style.background_gradient(cmap="RdYlGn", vmin=-1, vmax=1), use_container_width=True)
+                    try:
+                        import plotly.graph_objects as go
+                        fig = go.Figure(data=go.Heatmap(
+                            z=corr_df.values,
+                            x=corr_df.columns,
+                            y=corr_df.index,
+                            colorscale=[
+                                [0.0, "#f75050"],   # -1: red (inverse)
+                                [0.5, "#1a1b2e"],   #  0: neutral dark
+                                [1.0, "#22d472"],   # +1: green (perfect corr)
+                            ],
+                            zmin=-1, zmax=1,
+                            text=corr_df.round(2).values,
+                            texttemplate="%{text:.2f}",
+                            textfont={"size": 12, "color": "white"},
+                            colorbar=dict(title="ρ", thickness=12, len=0.8,
+                                          tickfont=dict(color="#c8cce0")),
+                            hovertemplate="<b>%{y} vs %{x}</b><br>Correlation: %{z:.3f}<extra></extra>",
+                        ))
+                        fig.update_layout(
+                            height=max(350, 50 * len(corr_df)),
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            paper_bgcolor="#0a0a14",
+                            plot_bgcolor="#0a0a14",
+                            font=dict(color="#c8cce0"),
+                            xaxis=dict(side="bottom"),
+                            yaxis=dict(autorange="reversed"),
+                        )
+                        st.plotly_chart(fig, use_container_width=True, theme=None)
+                    except ImportError:
+                        # Fallback: plain dataframe with conditional formatting via color column
+                        def cell_color(v):
+                            if v > 0.5:  return "color:#22d472;font-weight:600"
+                            if v < -0.5: return "color:#f75050;font-weight:600"
+                            return "color:#c8cce0"
+                        styled = corr_df.style.map(cell_color) if hasattr(corr_df.style, "map") else corr_df
+                        st.dataframe(styled, use_container_width=True)
                     st.caption("Values near 1 = highly correlated (less diversification). Values near -1 = inverse correlation.")
 
             except Exception as e:

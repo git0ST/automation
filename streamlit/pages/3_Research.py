@@ -153,7 +153,23 @@ def main():
     with tab_signals:
         signals = load_signals_from_supabase()
         if not signals:
-            st.info("No signals in Supabase yet.")
+            st.warning(
+                "⚠ **No signals in Supabase yet.** The pipeline cron hasn't populated insider/options/congress/FINRA data.\n\n"
+                "**To fix:** Trigger the pipeline at "
+                "https://github.com/git0ST/automation/actions/workflows/digest.yml — "
+                "click 'Run workflow' → wait ~3-5 min → refresh this page.",
+                icon="⚠️",
+            )
+            with st.expander("ℹ️ What are signals?"):
+                st.markdown("""
+                Signals are **non-public-yet alpha-generating events** the pipeline pulls daily:
+                - 🏛️ **SEC EDGAR insider trading** (Form 4) — executives buying/selling stock
+                - 📈 **Unusual options flow** — large block trades hinting at smart-money positioning
+                - 🏛️ **Congressional trades** — disclosed transactions by US Senators/Reps
+                - 📉 **FINRA short interest** — short positions building up
+
+                Once populated, this tab will show interpreted signals with AI commentary.
+                """)
             return
 
         source_map = {"edgar": "SEC Insider", "options": "Options Flow", "congress": "Congress", "finra": "FINRA Short"}
@@ -175,22 +191,64 @@ def main():
 
     # ── Custom Query tab ───────────────────────────────────────────────────
     with tab_custom:
-        st.markdown("Ask the **Manager Agent** any financial question:")
-        st.markdown("_Examples: 'What is the VaR of NVDA?'  ·  'What is the market regime?'  ·  'Compute portfolio risk for AAPL MSFT AMZN'_")
+        st.markdown("### 🤖 Manager Agent — Natural Language Query")
+        st.caption("Ask anything about markets, risk, regime, or specific tickers. Routes to the right agent automatically.")
 
-        query = st.text_input("Your question", placeholder="e.g. What is the systemic risk level?")
-        if st.button("Ask Agent", use_container_width=True) and query:
-            with st.spinner("Routing query…"):
-                import asyncio
-                from agents.manager_agent import handle_query
-                loop = asyncio.new_event_loop()
-                result = loop.run_until_complete(handle_query(query))
-                loop.close()
+        # Pre-built example chips
+        st.markdown("**Quick examples** (click to fill):")
+        cols = st.columns(4)
+        examples = [
+            "What is the VaR of NVDA?",
+            "What is the current market regime?",
+            "Compute portfolio risk for AAPL MSFT AMZN GOOGL",
+            "Show RSI and SMA for TSLA",
+        ]
+        for col, ex in zip(cols, examples):
+            with col:
+                if st.button(ex, use_container_width=True, key=f"ex_{ex[:20]}"):
+                    st.session_state["manager_query"] = ex
 
-            st.subheader(f"Intent: {result.get('intent','?').upper()}")
-            if result.get("tickers"):
-                st.write("Tickers:", ", ".join(result["tickers"]))
-            st.markdown(result.get("answer", "No answer generated."))
+        query = st.text_input(
+            "Your question",
+            value=st.session_state.get("manager_query", ""),
+            placeholder="e.g. What is the systemic risk level?",
+            key="manager_query_input",
+        )
+
+        if st.button("🚀 Ask Agent", use_container_width=True, type="primary") and query:
+            with st.spinner("Routing query through Manager Agent…"):
+                try:
+                    import asyncio
+                    from agents.manager_agent import handle_query
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(handle_query(query))
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    st.error(f"Agent error: {e}")
+                    result = None
+
+            if result:
+                # Show intent classification
+                col_intent, col_tickers = st.columns([1, 2])
+                with col_intent:
+                    st.metric("Intent", result.get("intent", "?").upper())
+                with col_tickers:
+                    if result.get("tickers"):
+                        st.metric("Tickers detected", ", ".join(result["tickers"]))
+
+                st.divider()
+
+                # Show answer
+                answer = result.get("answer") or "No answer generated. Try rephrasing your query or check GROQ_API_KEY in secrets."
+                st.markdown("### Answer")
+                st.markdown(answer)
+
+                # Show structured data if present (for VaR, portfolio queries etc)
+                if result.get("data"):
+                    with st.expander("📊 Raw data"):
+                        st.json(result["data"])
 
 
 main()

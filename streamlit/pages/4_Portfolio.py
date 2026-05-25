@@ -225,9 +225,13 @@ def _render_add_tab(tab):
 
             if submitted and new_ticker:
                 if save_position(new_ticker, new_shares, new_cost, new_notes):
-                    st.success(f"✓ Saved {new_ticker}: {new_shares} shares @ ${new_cost:.2f}")
                     load_positions.clear()
+                    st.success(f"✓ Saved {new_ticker}: {new_shares} shares @ ${new_cost:.2f}")
                     st.balloons()
+                    # Force rerun so the new position appears in the My Positions tab
+                    import time
+                    time.sleep(0.5)  # let user see the success message
+                    st.rerun()
 
 
 def _render_risk_tab(tab):

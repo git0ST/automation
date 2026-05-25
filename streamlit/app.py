@@ -169,33 +169,97 @@ def load_pipeline_data():
         return {}
 
 
+@st.cache_data(ttl=600, show_spinner=False)  # 10 min — live FRED fallback is heavy
+def _compute_regime_risk_live():
+    """Compute regime + risk inline from live FRED data when Supabase is empty.
+    Heavy operation — cached aggressively. Falls back gracefully if any source fails."""
+    try:
+        from intelligence.regime import detect_regime, regime_to_dict
+        from intelligence.risk   import compute_risk, risk_to_dict
+        import httpx
+
+        # FRED series we need for both regime + risk
+        # Free FRED API: https://fred.stlouisfed.org/docs/api/fred/ (no key needed for public data)
+        # We use the lightweight CSV endpoint
+        FRED_SERIES = {
+            "T10Y2Y":       "yield_curve_10y_2y",       # 10y - 2y spread
+            "DFF":          "fed_funds",                # fed funds rate
+            "CPIAUCSL":     "cpi",                      # consumer price index
+            "UNRATE":       "unemployment",             # unemployment rate
+            "VIXCLS":       "vix",                      # VIX
+            "DGS10":        "treasury_10y",             # 10y treasury
+            "T10YIE":       "breakeven_inflation_10y",  # 10y breakeven inflation
+            "BAMLH0A0HYM2": "hy_oas",                   # ICE BofA HY OAS
+        }
+        macro = {}
+        with httpx.Client(timeout=8) as client:
+            for series_id, key in FRED_SERIES.items():
+                try:
+                    # Public CSV endpoint — no API key needed
+                    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+                    r = client.get(url)
+                    if r.status_code == 200:
+                        lines = [ln.strip() for ln in r.text.splitlines() if ln.strip()]
+                        # Last row with a value (skip header + missing)
+                        for row in reversed(lines[1:]):
+                            parts = row.split(",")
+                            if len(parts) >= 2 and parts[1] not in (".", ""):
+                                try:
+                                    macro[key] = {
+                                        "value": float(parts[1]),
+                                        "period": parts[0],
+                                        "series_id": series_id,
+                                    }
+                                    break
+                                except ValueError:
+                                    continue
+                except Exception:
+                    continue
+
+        # Compute regime + risk
+        regime_obj = detect_regime(macro, sentiment_score=0.0)
+        risk_obj   = compute_risk(macro, fear_greed_value=50, sentiment_avg=0.0)
+        return regime_to_dict(regime_obj), risk_to_dict(risk_obj)
+    except Exception:
+        return {}, {}
+
+
 @st.cache_data(ttl=60, show_spinner=False)  # cache 1 min
 def load_regime_risk():
-    """Load latest regime + risk from Supabase. Returns (regime, risk, missing_tables)."""
+    """Load latest regime + risk. Tries Supabase first, falls back to live FRED.
+    Returns (regime, risk, missing_tables)."""
     client = get_supabase()
-    if not client:
-        return {}, {}, []
-
     missing = []
     regime, risk = {}, {}
 
-    try:
-        rows = (client.table("regime_snapshots")
-                .select("*").order("captured_at", desc=True).limit(1)
-                .execute()).data
-        regime = rows[0] if rows else {}
-    except Exception as e:
-        if "regime_snapshots" in str(e) and "schema cache" in str(e):
-            missing.append("regime_snapshots")
+    if client:
+        try:
+            rows = (client.table("regime_snapshots")
+                    .select("*").order("captured_at", desc=True).limit(1)
+                    .execute()).data
+            regime = rows[0] if rows else {}
+        except Exception as e:
+            if "regime_snapshots" in str(e) and "schema cache" in str(e):
+                missing.append("regime_snapshots")
 
-    try:
-        rows = (client.table("risk_scores")
-                .select("*").order("captured_at", desc=True).limit(1)
-                .execute()).data
-        risk = rows[0] if rows else {}
-    except Exception as e:
-        if "risk_scores" in str(e) and "schema cache" in str(e):
-            missing.append("risk_scores")
+        try:
+            rows = (client.table("risk_scores")
+                    .select("*").order("captured_at", desc=True).limit(1)
+                    .execute()).data
+            risk = rows[0] if rows else {}
+        except Exception as e:
+            if "risk_scores" in str(e) and "schema cache" in str(e):
+                missing.append("risk_scores")
+
+    # ── Fallback: compute live from FRED if Supabase has no data ────────────
+    if not regime or not risk:
+        live_regime, live_risk = _compute_regime_risk_live()
+        if not regime and live_regime:
+            regime = live_regime
+            regime["_source"] = "live_fred"
+        if not risk and live_risk:
+            risk = live_risk
+            risk["_source"] = "live_fred"
 
     return regime, risk, missing
 
@@ -273,7 +337,7 @@ def render_sidebar(regime, risk):
               <div style="font-size:10px;color:#5a5e7a;margin-top:4px">Transition: {regime.get("transition_risk", "—")}</div>
             </div>""", unsafe_allow_html=True)
         else:
-            st.info("Regime data loading…")
+            st.caption("⏳ Regime data not yet available — trigger the pipeline cron to populate, or wait ~10 sec for live FRED fetch.")
 
         # Risk gauge
         if risk:
@@ -292,7 +356,7 @@ def render_sidebar(regime, risk):
               </div>
             </div>""", unsafe_allow_html=True)
         else:
-            st.info("Risk score loading…")
+            st.caption("⏳ Risk score not yet available — see banner above for next steps.")
 
         st.divider()
         st.markdown("**Navigation**")
@@ -322,7 +386,17 @@ def main():
             load_pipeline_data.clear()
             load_regime_risk.clear()
             load_market_prices.clear()
+            _compute_regime_risk_live.clear()
             st.rerun()
+
+    # Source banner — make data freshness explicit
+    if regime.get("_source") == "live_fred" or risk.get("_source") == "live_fred":
+        st.info(
+            "📡 **Regime + Risk computed live from FRED** (pipeline cron hasn't populated Supabase yet). "
+            "Trigger the pipeline at https://github.com/git0ST/automation/actions/workflows/digest.yml "
+            "to enable full historical tracking + news/signals.",
+            icon="📡",
+        )
 
     # ── Setup warning if Supabase migrations not run ────────────────────────
     if missing_tables:
