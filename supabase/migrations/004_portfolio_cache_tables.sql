@@ -85,24 +85,31 @@ CREATE POLICY "anon_update_cache" ON api_cache
 
 
 -- ── Cleanup function for expired cache rows ───────────────────────────────────
--- Call periodically:  SELECT cleanup_expired_cache();
+-- Pipeline-only maintenance function. Call via service_role:
+--   SELECT cleanup_expired_cache();
+--
+-- Hardened against search_path attacks (SET search_path = '' + fully-qualified
+-- table names). Anon execute revoked — pipeline-only.
 
-CREATE OR REPLACE FUNCTION cleanup_expired_cache()
+CREATE OR REPLACE FUNCTION public.cleanup_expired_cache()
 RETURNS INTEGER
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = ''
 AS $$
 DECLARE
   deleted_count INTEGER;
 BEGIN
-  DELETE FROM api_cache WHERE expires_at < NOW();
+  DELETE FROM public.api_cache WHERE expires_at < NOW();
   GET DIAGNOSTICS deleted_count = ROW_COUNT;
   RETURN deleted_count;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION cleanup_expired_cache() TO service_role;
-GRANT EXECUTE ON FUNCTION cleanup_expired_cache() TO anon;
+REVOKE ALL ON FUNCTION public.cleanup_expired_cache() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cleanup_expired_cache() FROM anon;
+REVOKE ALL ON FUNCTION public.cleanup_expired_cache() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.cleanup_expired_cache() TO service_role;
 
 
 -- ── Verification queries (run these to confirm migration succeeded) ───────────

@@ -92,7 +92,13 @@ CREATE POLICY "service_all_credit" ON credit_spreads
 
 
 -- ── Summary view: latest regime + risk ────────────────────────────────────────
-CREATE OR REPLACE VIEW v_intelligence_latest AS
+-- SECURITY INVOKER ensures the view respects the calling user's RLS.
+-- Without it, Postgres defaults to SECURITY DEFINER (creator's perms).
+
+DROP VIEW IF EXISTS v_intelligence_latest;
+
+CREATE OR REPLACE VIEW v_intelligence_latest
+WITH (security_invoker = on) AS
 SELECT
   r.regime,
   r.label           AS regime_label,
@@ -111,7 +117,7 @@ FROM
   CROSS JOIN
   (SELECT * FROM risk_scores ORDER BY captured_at DESC LIMIT 1) k;
 
-GRANT SELECT ON v_intelligence_latest TO anon;
+GRANT SELECT ON v_intelligence_latest TO anon, authenticated;
 
 
 -- ── Verification (run these to confirm migration succeeded) ───────────────────
