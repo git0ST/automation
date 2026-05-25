@@ -96,17 +96,54 @@ STRONG_KEYWORDS = frozenset({
     "wall street",
 })
 
+# Macro-relevant events — affect markets but aren't pure finance.
+# Geopolitical events, commodity disruptions, policy shifts, supply chains.
+# Match → KEEP with medium score (0.4-0.6).
+MACRO_EVENT_KEYWORDS = frozenset({
+    # Geopolitics / conflict (affect oil, defense stocks, FX, gold)
+    "war", "warfare", "military", "conflict", "invasion", "missile", "strike",
+    "drone strike", "sanctions", "embargo", "ceasefire", "geopolitical",
+    "nato", "putin", "zelensky", "xi jinping", "kremlin", "pentagon",
+    "white house", "biden", "trump", "harris",
+    # Specific regions with market relevance
+    "russia", "ukraine", "china", "taiwan", "iran", "israel", "gaza",
+    "north korea", "middle east", "south china sea", "strait of hormuz",
+    # Supply / trade disruption
+    "supply chain", "pipeline", "port strike", "shipping", "container",
+    "logistics", "shortage", "tariff", "trade war", "export ban",
+    "chip act", "chips act", "huawei", "tsmc",
+    # Energy / commodity events
+    "opec", "saudi", "uae", "norway oil", "shale", "lng", "natural gas",
+    "rare earth", "lithium", "cobalt",
+    # Policy / elections
+    "election", "fed chair", "treasury secretary", "rate decision",
+    "tax cut", "tax hike", "regulation", "antitrust", "doj", "ftc",
+    # Health / pandemic / disaster (market-moving)
+    "pandemic", "outbreak", "vaccine", "recall", "fda approval",
+    "hurricane", "earthquake", "tsunami", "wildfire california",
+    "natural disaster",
+    # Cybersecurity / infrastructure
+    "cyberattack", "ransomware", "breach", "data leak", "swift",
+    "infrastructure", "grid attack", "power outage major",
+})
+
 # Bad keywords that disqualify content (anti-spam / off-topic guard)
 BAD_KEYWORDS = frozenset({
+    # Religious / spiritual (no market impact)
     "encyclical", "vatican", "pope", "papal", "religion", "spiritual",
+    "monastery", "prayer",
+    # Entertainment / celebrity
     "celebrity", "kardashian", "taylor swift", "music album", "movie release",
-    "video game", "esports", "league of legends", "minecraft", "fortnite",
-    "anime", "manga", "kpop",
-    # Pure-tech non-financial
+    "video game launch", "esports tournament", "league of legends",
+    "minecraft", "fortnite", "anime", "manga", "kpop",
+    # Hobby / lifestyle (no market relevance)
+    "recipe", "vegan diet", "marathon training", "yoga retreat",
+    "meditation", "gardening", "knitting",
+    # Pure dev content (already filtered by source removal)
     "kubernetes tutorial", "rust crate", "javascript framework",
-    "css trick", "react hook", "pytorch model", "tensorflow",
-    # Hobby / lifestyle
-    "recipe", "vegan", "diet", "marathon", "yoga", "meditation",
+    "css trick", "react hook",
+    # Sports (unless betting/team value news — too narrow to keep)
+    "world cup match", "olympics medal", "super bowl halftime",
 })
 
 
@@ -139,24 +176,25 @@ def extract_tickers(text: str) -> list[str]:
 def finance_relevance(title: str, preview: str = "") -> tuple[bool, float, list[str]]:
     """Return (is_relevant, score 0-1, matched_evidence).
 
-    Decision logic:
-      1. Hard-fail on BAD_KEYWORDS in title  → (False, 0.0)
-      2. Strong keyword match in title       → (True, ≥0.7)
-      3. Ticker symbol in title or preview   → (True, ≥0.6)
-      4. ≥2 finance keywords in title+preview → (True, score = matches/10)
-      5. <2 keywords → (False, score)
+    Decision tiers:
+      1. BAD keywords in title              → DROP   (0.00)
+      2. STRONG finance keyword             → KEEP   (0.70-1.00)
+      3. Valid ticker symbol                → KEEP   (0.60-1.00)
+      4. ≥2 finance keywords                → KEEP   (0.40-0.80)
+      5. Macro event (geopolitics/policy)   → KEEP   (0.40-0.65)
+      6. None of the above                  → DROP   (0.00-0.30)
     """
     text = f"{title or ''} {preview or ''}".lower()
     title_l = (title or "").lower()
 
-    # 1. Hard-fail on bad keywords in title
+    # 1. Hard-fail on bad keywords in title (religion/entertainment/hobby)
     for bad in BAD_KEYWORDS:
         if bad in title_l:
             return (False, 0.0, [f"bad:{bad}"])
 
     evidence: list[str] = []
 
-    # 2. Strong keyword in title → high confidence
+    # 2. Strong keyword in title → high confidence finance
     for kw in STRONG_KEYWORDS:
         if kw in title_l:
             evidence.append(f"strong:{kw}")
@@ -169,21 +207,38 @@ def finance_relevance(title: str, preview: str = "") -> tuple[bool, float, list[
         evidence.extend(f"ticker:{t}" for t in tickers[:3])
         return (True, min(1.0, 0.6 + 0.1 * len(tickers)), evidence)
 
-    # 4. Finance keyword count across title + preview
+    # 4. Finance keyword count
     keyword_matches = []
     for kw in FINANCE_KEYWORDS:
-        # Word-boundary match (multi-word phrases ok)
         if re.search(r"\b" + re.escape(kw) + r"\b", text):
             keyword_matches.append(kw)
-            if len(keyword_matches) >= 5:  # cap evidence
+            if len(keyword_matches) >= 5:
                 break
-    score = min(1.0, len(keyword_matches) / 5)
-
     if len(keyword_matches) >= 2:
-        evidence.extend(f"kw:{kw}" for kw in keyword_matches[:5])
-        return (True, max(0.4, score), evidence)
+        score = min(0.8, 0.4 + 0.1 * len(keyword_matches))
+        return (True, score, [f"kw:{kw}" for kw in keyword_matches[:5]])
 
-    return (False, score, evidence)
+    # 5. Macro event — geopolitics, policy, supply chain, disasters
+    # These move markets even without direct finance keywords.
+    macro_matches = []
+    for kw in MACRO_EVENT_KEYWORDS:
+        if re.search(r"\b" + re.escape(kw) + r"\b", text):
+            macro_matches.append(kw)
+            if len(macro_matches) >= 4:
+                break
+    if macro_matches:
+        # Score 0.40 base + 0.05/match, cap 0.65
+        score = min(0.65, 0.40 + 0.05 * len(macro_matches))
+        # Bonus 0.10 if also has 1+ finance keyword (proves market angle)
+        if keyword_matches:
+            score = min(0.75, score + 0.10)
+        return (True, score, [f"macro:{kw}" for kw in macro_matches[:4]])
+
+    # 6. Single finance keyword — borderline, drop
+    if len(keyword_matches) == 1:
+        return (False, 0.3, [f"kw:{keyword_matches[0]}"])
+
+    return (False, 0.0, evidence)
 
 
 def filter_items(items: list[dict], min_score: float = 0.4) -> list[dict]:

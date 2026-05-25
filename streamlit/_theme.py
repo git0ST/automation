@@ -33,8 +33,86 @@ REGIME_COLORS = {
 
 
 def apply_theme() -> None:
-    """Inject the INTL design system CSS. Idempotent."""
+    """Inject the INTL design system CSS + sidebar-toggle visibility JS. Idempotent."""
     st.markdown(_CSS, unsafe_allow_html=True)
+    st.markdown(_SIDEBAR_TOGGLE_JS, unsafe_allow_html=True)
+
+
+# JS that runs every 500ms to force the sidebar toggle visible, regardless of
+# Streamlit version. Survives re-renders that wipe inline styles.
+_SIDEBAR_TOGGLE_JS = """
+<script>
+(function() {
+  const SELECTORS = [
+    '[data-testid="stSidebarCollapsedControl"]',
+    '[data-testid="collapsedControl"]',
+    '[data-testid="stExpandSidebarButton"]',
+    '[data-testid="stSidebarCollapseButton"]',
+    'header button[kind="header"]',
+    'header button[kind="headerNoPadding"]',
+  ];
+  const STYLE = `
+    background: #4c8bf5 !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 8px !important;
+    min-width: 42px !important;
+    min-height: 42px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    box-shadow: 0 0 0 2px #4c8bf5, 0 4px 10px rgba(76, 139, 245, 0.35) !important;
+    cursor: pointer !important;
+    z-index: 9999 !important;
+    margin: 8px !important;
+  `;
+
+  function paintToggle(el) {
+    if (!el) return;
+    el.style.cssText = STYLE;
+    // Force the icon (SVG or Material Symbol) to be white
+    el.querySelectorAll('svg, svg path, svg g').forEach(svg => {
+      svg.style.fill = '#ffffff';
+      svg.style.color = '#ffffff';
+      svg.style.opacity = '1';
+    });
+    el.querySelectorAll('[class*="material-symbol"], [data-testid*="Icon"]').forEach(sym => {
+      sym.style.color = '#ffffff';
+      sym.style.fontSize = '22px';
+      sym.style.opacity = '1';
+    });
+    // Fallback: inject ☰ as button text if it's completely empty
+    if (!el.querySelector('svg') && !el.querySelector('[class*="material"]') && !el.textContent.trim()) {
+      el.innerHTML = '<span style="color:white;font-size:20px;font-weight:700">☰</span>';
+    }
+  }
+
+  function ensureVisible() {
+    for (const sel of SELECTORS) {
+      document.querySelectorAll(sel).forEach(paintToggle);
+    }
+  }
+
+  // Initial run + retries
+  ensureVisible();
+  setTimeout(ensureVisible, 500);
+  setTimeout(ensureVisible, 1500);
+  setTimeout(ensureVisible, 3000);
+
+  // Watch for DOM mutations (Streamlit re-renders frequently)
+  const observer = new MutationObserver(() => ensureVisible());
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // Re-apply every 2 seconds as belt-and-braces (cheap, no perf impact)
+  setInterval(ensureVisible, 2000);
+})();
+</script>
+"""
 
 
 _CSS = """
