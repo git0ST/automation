@@ -1,0 +1,38 @@
+name: automation
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - jupyter
+  - ipykernel
+  - ipywidgets
+  - pip:
+    # LLM orchestration
+    - langchain>=0.3
+    - langchain-community>=0.3
+    - langchain-anthropic>=0.3
+    - langchain-openai>=0.3
+    - langgraph>=0.2          # multi-agent workflows (langchain's graph framework)
+    # Local LLM
+    - ollama>=0.4
+    # Cloud APIs
+    - anthropic>=0.40
+    - openai>=1.50
+    # Web automation
+    - playwright>=1.48
+    # Utilities
+    - python-dotenv>=1.0
+    - httpx>=0.27
+    - pydantic>=2.8
+    - rich>=13.0              # pretty terminal output
+    - typer>=0.12             # CLI tool builder
+    - loguru>=0.7             # structured logging
+    # Data / ML (you already know these)
+    - numpy>=1.26
+    - pandas>=2.1
+    - scikit-learn>=1.4
+    # Dev
+    - pytest>=8.0
+    - ruff>=0.6               # fast linter + formatter

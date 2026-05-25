@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════
+#  INTELLIGENCE TERMINAL — .gitignore
+#  Security-first: secrets never reach git
+# ═══════════════════════════════════════════════
+
+# ── Secrets & credentials ──────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service_account.json
+secrets/
+
+# ── Python runtime ─────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# ── Virtual environments ───────────────────────
+.venv/
+venv/
+env/
+ENV/
+conda-env/
+
+# ── Notebooks ──────────────────────────────────
+.ipynb_checkpoints/
+
+# ── macOS ──────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Logs & temp ────────────────────────────────
+logs/
+*.log
+*.tmp
+*.bak
+*.swp
+
+# ── Data outputs ───────────────────────────────
+data/raw/
+outputs/
+*.csv
+*.parquet
+*.pkl
+*.sqlite
+*.db
+
+# ── IDEs ───────────────────────────────────────
+.idea/
+.vscode/settings.json
+*.sublime-project
+
+# ── Claude Code local overrides ────────────────
+.claude/settings.local.json

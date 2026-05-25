@@ -1,0 +1,51 @@
+from .hackernews import fetch_hackernews
+from .arxiv import fetch_arxiv
+from .reddit import fetch_reddit
+from .github_trending import fetch_github_trending
+from .rss import fetch_rss
+from .finance import fetch_finance
+from .stackoverflow import fetch_stackoverflow
+from .fred import fetch_fred
+from .fear_greed import fetch_fear_greed
+from .edgar import fetch_edgar
+from .gdelt import fetch_gdelt
+from .stocktwits import fetch_stocktwits
+from .options import fetch_options
+from .coingecko import fetch_coingecko
+from .congress import fetch_congress
+from .finra_short import fetch_finra_short
+
+SOURCE_FETCHERS = {
+    "hackernews":    fetch_hackernews,
+    "arxiv":         fetch_arxiv,
+    "reddit":        fetch_reddit,
+    "github":        fetch_github_trending,
+    "rss":           fetch_rss,
+    "finance":       fetch_finance,
+    "stackoverflow": fetch_stackoverflow,
+    "fred":          fetch_fred,
+    "fear_greed":    fetch_fear_greed,
+    "edgar":         fetch_edgar,
+    "gdelt":         fetch_gdelt,
+    "stocktwits":    fetch_stocktwits,
+    "options":       fetch_options,
+    "coingecko":     fetch_coingecko,
+    "congress":      fetch_congress,
+    "finra":         fetch_finra_short,
+}
+
+# Sources included in full pipeline runs
+ALL_SOURCES = [
+    "hackernews", "arxiv", "reddit", "github",
+    "rss", "finance", "stackoverflow", "fred", "fear_greed",
+    "edgar", "gdelt", "stocktwits", "options", "coingecko", "congress", "finra",
+]
+
+# Sources that produce actionable trade signals (not news)
+SIGNAL_SOURCES = {"edgar", "options", "congress", "finra"}
+
+# Sources that produce crypto market data
+CRYPTO_SOURCES = {"coingecko"}
+
+# Sources excluded from the main news feed
+NON_FEED_SOURCES = {"finance", "fred", "macro", "fear_greed"} | SIGNAL_SOURCES | CRYPTO_SOURCES

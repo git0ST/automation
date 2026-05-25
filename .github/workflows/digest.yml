@@ -1,0 +1,116 @@
+name: Intelligence Terminal — Pipeline
+
+on:
+  schedule:
+    # 4× daily: 1:30, 6:30, 11:30, 16:30 UTC (7, 12, 17, 22 IST)
+    - cron: '30 1  * * *'
+    - cron: '30 6  * * *'
+    - cron: '30 11 * * *'
+    - cron: '30 16 * * *'
+  workflow_dispatch:
+    inputs:
+      run_ai:
+        description: 'Enable Ollama AI analysis (requires Ollama runner)'
+        required: false
+        default: 'false'
+        type: boolean
+      sources:
+        description: 'Comma-separated sources (blank = all)'
+        required: false
+        default: ''
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SUPABASE_ANON_KEY:    ${{ secrets.SUPABASE_ANON_KEY }}
+      LLM_PROVIDER:         local
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            httpx \
+            fastapi \
+            uvicorn \
+            python-dotenv \
+            supabase \
+            vaderSentiment \
+            praw \
+            feedparser \
+            yfinance \
+            fear-and-greed \
+            beautifulsoup4 \
+            pandas
+
+      - name: Run intelligence pipeline
+        run: |
+          python - <<'PYEOF'
+          import asyncio, sys, os
+          from pathlib import Path
+
+          ROOT = Path(".")
+          sys.path.insert(0, str(ROOT))
+          sys.path.insert(0, str(ROOT / "projects" / "daily_digest"))
+
+          from sources import ALL_SOURCES
+          from agents.pipeline import run_pipeline
+
+          async def main():
+              run_ai = os.getenv("INPUT_RUN_AI","false").lower() == "true"
+              src_override = os.getenv("INPUT_SOURCES","").strip()
+              sources = [s.strip() for s in src_override.split(",") if s.strip()] if src_override else ALL_SOURCES
+
+              limits = {
+                  "hackernews":    15, "arxiv":       12,
+                  "reddit":        15, "github":       12,
+                  "rss":           15, "stackoverflow":10,
+                  "finance":       25, "fred":         12,
+                  "fear_greed":     5, "edgar":        20,
+                  "options":       15, "congress":     15,
+                  "finra":         15, "gdelt":        20,
+                  "stocktwits":    25, "coingecko":    20,
+              }
+
+              print(f"Running pipeline: {len(sources)} sources, run_ai={run_ai}")
+              result = await run_pipeline(sources=sources, limits=limits, run_ai=run_ai, store=True)
+
+              meta    = result.get("run_meta", {})
+              sent    = result.get("sentiment", {})
+              signals = result.get("signal_data", [])
+              store   = result.get("store_stats", {})
+              fs      = result.get("fetch_stats", {})
+
+              print(f"Items:    {meta.get('total_clean')} / {meta.get('total_raw')} raw")
+              print(f"Signals:  {len(signals)}")
+              print(f"Sentiment:{sent.get('bullish_pct')}% bull / {sent.get('bearish_pct')}% bear")
+              print(f"Alerts:   {len(result.get('alerts',[]))}")
+              print(f"Supabase: {store}")
+              print("\nSource breakdown:")
+              for src, stat in sorted(fs.items()):
+                  ok = "✓" if "ERROR" not in str(stat) else "✗"
+                  print(f"  {ok} {src:14s}: {stat}")
+
+          asyncio.run(main())
+          PYEOF
+        env:
+          INPUT_RUN_AI:  ${{ github.event.inputs.run_ai || 'false' }}
+          INPUT_SOURCES: ${{ github.event.inputs.sources || '' }}
+
+      - name: Report summary
+        if: always()
+        run: echo "Pipeline completed $(date -u '+%Y-%m-%d %H:%M UTC')"
