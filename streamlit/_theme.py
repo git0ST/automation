@@ -328,96 +328,107 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 
 .js-plotly-plot, .plotly { background: transparent !important; }
 
-/* Hide Streamlit chrome — keep sidebar toggle visible */
+/* Hide Streamlit chrome — keep header + sidebar toggle visible */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header [data-testid="stToolbar"] { visibility: hidden !important; }
-header [data-testid="stDecoration"] { visibility: hidden !important; }
-header [data-testid="stStatusWidget"] { visibility: hidden !important; }
 
-/* Sidebar collapse/expand toggle — fully visible icon + button */
-[data-testid="stSidebarCollapsedControl"] {
+/* Show the header (contains the sidebar toggle) but hide its content widgets */
+header[data-testid="stHeader"] {
+  visibility: visible !important;
+  background: transparent !important;
+  height: 3rem !important;
+}
+[data-testid="stToolbar"]      { display: none !important; }
+[data-testid="stDecoration"]   { display: none !important; }
+[data-testid="stStatusWidget"] { display: none !important; }
+
+/* ═══════════ SIDEBAR TOGGLE — every known selector across Streamlit versions ═══════════ */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"],
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapseButton"],
+header button[kind="header"],
+header button[kind="headerNoPadding"] {
   visibility: visible !important;
   opacity: 1 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background: #131825 !important;
-  border: 1px solid #2a3447 !important;
+  background: #4c8bf5 !important;
+  color: #ffffff !important;
+  border: none !important;
   border-radius: 6px !important;
-  padding: 8px !important;
-  margin: 8px !important;
+  width: 40px !important;
+  height: 40px !important;
+  margin: 6px !important;
   cursor: pointer !important;
-  z-index: 1000 !important;
-  min-width: 38px !important;
-  min-height: 38px !important;
-}
-[data-testid="stSidebarCollapsedControl"]:hover {
-  background: #1a2034 !important;
-  border-color: #4c8bf5 !important;
+  z-index: 9999 !important;
+  position: relative !important;
+  box-shadow: 0 2px 8px rgba(76, 139, 245, 0.3) !important;
 }
 
-/* The icon inside — make sure SVG + Material Symbol both render in cobalt */
-[data-testid="stSidebarCollapsedControl"] svg {
+[data-testid="stSidebarCollapsedControl"]:hover,
+[data-testid="collapsedControl"]:hover,
+[data-testid="stExpandSidebarButton"]:hover,
+header button[kind="header"]:hover {
+  background: #3a78e0 !important;
+  box-shadow: 0 4px 12px rgba(76, 139, 245, 0.5) !important;
+}
+
+/* Force the icon inside to be white + visible */
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg,
+[data-testid="stExpandSidebarButton"] svg,
+[data-testid="stSidebarCollapseButton"] svg,
+header button[kind="header"] svg,
+header button[kind="headerNoPadding"] svg {
   width: 20px !important;
   height: 20px !important;
-  color: #4c8bf5 !important;
-  fill: #4c8bf5 !important;
+  color: #ffffff !important;
+  fill: #ffffff !important;
   opacity: 1 !important;
-  visibility: visible !important;
+  display: inline-block !important;
 }
 [data-testid="stSidebarCollapsedControl"] svg path,
-[data-testid="stSidebarCollapsedControl"] svg g {
-  fill: #4c8bf5 !important;
-  stroke: #4c8bf5 !important;
+[data-testid="collapsedControl"] svg path,
+[data-testid="stExpandSidebarButton"] svg path,
+[data-testid="stSidebarCollapseButton"] svg path,
+header button[kind="header"] svg path,
+header button[kind="headerNoPadding"] svg path {
+  fill: #ffffff !important;
+  stroke: #ffffff !important;
 }
-[data-testid="stSidebarCollapsedControl"] button {
-  color: #4c8bf5 !important;
-  background: transparent !important;
-  border: none !important;
-  padding: 0 !important;
-}
+
+/* Material Symbols fallback for the icon */
 [data-testid="stSidebarCollapsedControl"] [class*="material-symbol"],
-[data-testid="stSidebarCollapsedControl"] [data-testid*="Icon"] {
+[data-testid="collapsedControl"] [class*="material-symbol"],
+header button[kind="header"] [class*="material-symbol"],
+header button[kind="headerNoPadding"] [class*="material-symbol"] {
   font-family: 'Material Symbols Rounded' !important;
   font-size: 22px !important;
-  color: #4c8bf5 !important;
-  opacity: 1 !important;
+  color: #ffffff !important;
+  font-feature-settings: 'liga' !important;
 }
 
-/* Text-arrow fallback — visible "›" appears if no SVG/Material icon renders */
-[data-testid="stSidebarCollapsedControl"]::after {
-  content: "›";
-  color: #4c8bf5;
-  font-size: 22px;
+/* ::after fallback — always visible literal arrow if everything else fails */
+[data-testid="stSidebarCollapsedControl"]::after,
+[data-testid="collapsedControl"]::after {
+  content: "☰";
+  color: #ffffff;
+  font-size: 18px;
   font-weight: 700;
   position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   pointer-events: none;
-  opacity: 0;
 }
-/* Show fallback if the inner button is empty or icon failed to render */
-[data-testid="stSidebarCollapsedControl"]:has(button:empty)::after,
-[data-testid="stSidebarCollapsedControl"]:not(:has(svg)):not(:has([class*="material"]))::after {
-  opacity: 1;
-}
-
-/* The "close sidebar" button inside the open sidebar */
-[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
-[data-testid="stSidebar"] button[kind="header"] {
-  visibility: visible !important;
-  opacity: 1 !important;
-  color: #4c8bf5 !important;
-}
-[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
-[data-testid="stSidebar"] button[kind="header"] svg {
-  color: #4c8bf5 !important;
-  fill: #4c8bf5 !important;
-  width: 18px !important;
-  height: 18px !important;
-}
-[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg path,
-[data-testid="stSidebar"] button[kind="header"] svg path {
-  fill: #4c8bf5 !important;
+/* When the SVG renders, hide the fallback */
+[data-testid="stSidebarCollapsedControl"]:has(svg)::after,
+[data-testid="collapsedControl"]:has(svg)::after,
+[data-testid="stSidebarCollapsedControl"]:has([class*="material"])::after,
+[data-testid="collapsedControl"]:has([class*="material"])::after {
+  content: "" !important;
 }
 </style>
 """
