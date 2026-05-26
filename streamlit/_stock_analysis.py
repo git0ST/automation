@@ -126,16 +126,26 @@ def vol_signal(garch: dict) -> dict:
 
 
 def composite_prediction(technical: dict, sentiment: dict,
-                         analyst: dict, vol: dict) -> dict:
+                         analyst: dict, vol: dict,
+                         regime: str | None = None) -> dict:
     """Blend all signals into one directional call + confidence %.
 
-    Weights:
-      Technical  35%  (always available, most timely)
-      Sentiment  25%  (news + social, time-decayed)
-      Analyst    25%  (lagged but informed)
-      Vol regime 15%  (context modifier — not directional)
+    Weights are loaded from the active model_weights row (regime-aware
+    if available, else default). System learns from outcomes and rebalances
+    these over time via the Track Record → Model Evolution page.
     """
-    weights = {"technical": 0.35, "sentiment": 0.25, "analyst": 0.25, "vol": 0.15}
+    # Load learned weights if available, fall back to defaults
+    try:
+        from shared.learning_loop import load_active_weights
+        active = load_active_weights(regime=regime)
+        weights = {
+            "technical": float(active.get("technical_w") or 0.35),
+            "sentiment": float(active.get("sentiment_w") or 0.25),
+            "analyst":   float(active.get("analyst_w")   or 0.25),
+            "vol":       float(active.get("vol_w")       or 0.15),
+        }
+    except Exception:
+        weights = {"technical": 0.35, "sentiment": 0.25, "analyst": 0.25, "vol": 0.15}
 
     def to_vote(d):
         if d == "bullish": return +1

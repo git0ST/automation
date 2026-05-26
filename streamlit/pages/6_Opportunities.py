@@ -202,12 +202,22 @@ def main():
     with st.spinner(f"Scanning {len(universe)} tickers — multi-factor analysis…"):
         results = scan_universe(tuple(universe))
 
-    # Log predictions for backtest tracking (only confident, non-neutral ones)
+    # Log predictions for backtest tracking + self-improvement
     try:
         from shared.prediction_tracker import log_prediction
+        # Fetch current regime/SRS so each prediction is tagged
+        try:
+            from _data import load_regime_risk
+            regime_dict, risk_dict, _, _ = load_regime_risk()
+            current_regime = regime_dict.get("regime") if regime_dict else None
+            current_srs    = risk_dict.get("srs") if risk_dict else None
+        except Exception:
+            current_regime = current_srs = None
+
         logged = 0
         for r in results:
             if r["confidence"] >= 50 and r["direction"] != "neutral":
+                meta_sector = TICKER_META.get(r["ticker"], {}).get("sector")
                 ok = log_prediction(
                     ticker=r["ticker"],
                     direction=r["direction"],
@@ -217,12 +227,15 @@ def main():
                     components=r.get("components"),
                     quant_score=r.get("quant_score"),
                     quant_grade=r.get("quant_grade"),
+                    regime_at_pred=current_regime,
+                    srs_at_pred=current_srs,
+                    sector=meta_sector,
                 )
                 if ok:
                     logged += 1
         if logged:
-            st.caption(f"📝 Logged {logged} predictions for backtest tracking "
-                       "(see Track Record page).")
+            st.caption(f"📝 Logged {logged} predictions for backtest "
+                       "(see Track Record → Model Evolution).")
     except Exception:
         pass
 

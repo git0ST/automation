@@ -26,36 +26,56 @@ def log_prediction(ticker: str, direction: str, confidence_pct: float,
                    components: list[dict] | None = None,
                    quant_score: float | None = None,
                    quant_grade: str | None = None,
-                   vol_regime: str | None = None) -> bool:
-    """Log a single prediction. Returns True on success."""
+                   vol_regime: str | None = None,
+                   strategy_name: str | None = None,
+                   regime_at_pred: str | None = None,
+                   srs_at_pred: float | None = None,
+                   sector: str | None = None,
+                   horizon: str | None = None) -> bool:
+    """Log a single prediction with full provenance for self-improvement."""
     client = _client()
     if not client:
         return False
 
-    # Flatten components into named columns
     comp_map = {c["name"]: c for c in (components or [])}
     row = {
-        "ticker":          ticker,
-        "direction":       direction,
-        "confidence_pct":  confidence_pct,
-        "source_page":     source_page,
-        "predicted_at":    datetime.now(timezone.utc).isoformat(),
-        "price_at_pred":   price,
-        "tech_signal":     (comp_map.get("technical") or {}).get("direction"),
-        "tech_strength":   (comp_map.get("technical") or {}).get("strength"),
-        "sent_signal":     (comp_map.get("sentiment") or {}).get("direction"),
-        "sent_strength":   (comp_map.get("sentiment") or {}).get("strength"),
-        "analyst_signal":  (comp_map.get("analyst") or {}).get("direction"),
+        "ticker":           ticker,
+        "direction":        direction,
+        "confidence_pct":   confidence_pct,
+        "source_page":      source_page,
+        "predicted_at":     datetime.now(timezone.utc).isoformat(),
+        "price_at_pred":    price,
+        "tech_signal":      (comp_map.get("technical") or {}).get("direction"),
+        "tech_strength":    (comp_map.get("technical") or {}).get("strength"),
+        "sent_signal":      (comp_map.get("sentiment") or {}).get("direction"),
+        "sent_strength":    (comp_map.get("sentiment") or {}).get("strength"),
+        "analyst_signal":   (comp_map.get("analyst") or {}).get("direction"),
         "analyst_strength": (comp_map.get("analyst") or {}).get("strength"),
-        "vol_regime":      vol_regime,
-        "quant_score":     quant_score,
-        "quant_grade":     quant_grade,
+        "vol_regime":       vol_regime,
+        "quant_score":      quant_score,
+        "quant_grade":      quant_grade,
+        # Self-improvement fields (Migration 010)
+        "strategy_name":    strategy_name,
+        "regime_at_pred":   regime_at_pred,
+        "srs_at_pred":      srs_at_pred,
+        "sector":           sector,
+        "horizon":          horizon,
     }
+    # Strip None values to avoid issues on older schemas
+    row = {k: v for k, v in row.items() if v is not None}
     try:
         client.table("predictions").insert(row).execute()
         return True
     except Exception:
-        return False
+        # Retry without the migration-010 columns in case schema not updated
+        legacy = {k: v for k, v in row.items()
+                  if k not in {"strategy_name", "regime_at_pred", "srs_at_pred",
+                                "sector", "horizon"}}
+        try:
+            client.table("predictions").insert(legacy).execute()
+            return True
+        except Exception:
+            return False
 
 
 def fetch_track_record(days: int = 90) -> list[dict]:
