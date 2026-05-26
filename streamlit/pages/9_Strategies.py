@@ -23,6 +23,8 @@ from _strategy_engine import (STRATEGIES, find_strategies, position_sizing,
                                 compute_levels, _grade_to_int)
 from _components       import TICKER_META
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Strategies")
 
 
 HORIZON_HELP = {

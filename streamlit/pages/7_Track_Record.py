@@ -22,6 +22,8 @@ st.set_page_config(page_title="Track Record · INTL", page_icon="📈", layout="
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _theme import apply_theme, COLORS, status_pill
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Track_Record")
 
 
 @st.cache_data(ttl=300, show_spinner=False)

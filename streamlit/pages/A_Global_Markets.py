@@ -21,6 +21,8 @@ from _theme       import apply_theme, COLORS, status_pill
 from _kpi_help    import DXY, EURUSD, USDJPY, MARKET_REGIME
 from shared.global_markets import REGIONS, FOREX, lookup
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Global_Markets")
 
 
 @st.cache_data(ttl=300, show_spinner=False)

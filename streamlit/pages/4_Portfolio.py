@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _theme import apply_theme, COLORS
 from _data  import supabase_client
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Portfolio")
 
 
 @st.cache_data(ttl=60)

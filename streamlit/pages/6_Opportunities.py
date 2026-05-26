@@ -31,6 +31,8 @@ from _quant_score        import compute_quant_score
 from _components         import TICKER_META
 from _data               import supabase_client
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Opportunities")
 
 
 @st.cache_data(ttl=120, show_spinner=False)

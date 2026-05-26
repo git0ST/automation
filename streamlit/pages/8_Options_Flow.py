@@ -21,6 +21,8 @@ from _theme      import apply_theme, COLORS, status_pill
 from _data       import supabase_client
 from _components import TICKER_META
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Options_Flow")
 
 
 # Plain-English explanations

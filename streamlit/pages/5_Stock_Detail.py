@@ -29,6 +29,8 @@ from _stock_analysis import (technical_signal, sentiment_signal,
                               analyst_signal, vol_signal, composite_prediction)
 from _components    import TICKER_META
 apply_theme()
+from _terminal_chrome import render_chrome
+render_chrome("Stock_Detail")
 
 
 # Plain-English explanations for each metric — shown via st.metric(help=...)
