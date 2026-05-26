@@ -26,7 +26,9 @@ st.set_page_config(
 
 # ── Apply unified theme ───────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _theme      import apply_theme, COLORS, REGIME_COLORS, status_pill, KPI_HELP
+from _theme      import apply_theme, COLORS, REGIME_COLORS, status_pill
+from _kpi_help   import (MARKET_REGIME, SYSTEMIC_RISK, NEWS_SENTIMENT,
+                          ALPHA_SIGNALS, DATA_FRESHNESS)
 from _data       import (load_articles, load_signals, load_market_snapshots,
                          load_regime_risk, load_market_prices, supabase_client,
                          check_setup_status, load_weighted_sentiment,
@@ -327,7 +329,8 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
         st.divider()
         st.markdown("**Navigation**")
         st.page_link("app.py",                       label="🏠 Overview")
-        st.page_link("pages/1_Markets.py",           label="📈 Markets")
+        st.page_link("pages/A_Global_Markets.py",    label="🌍 Global Markets")
+        st.page_link("pages/1_Markets.py",           label="📈 US Markets")
         st.page_link("pages/6_Opportunities.py",     label="🎯 Opportunities")
         st.page_link("pages/9_Strategies.py",        label="🎲 Strategies")
         st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Detail")
@@ -452,7 +455,7 @@ def main():
             value=(regime.get("label") if regime else "—"),
             delta=f"{regime.get('confidence_pct', 0):.0f}% confidence" if regime else "no data",
             delta_color="off",
-            help=KPI_HELP["market_regime"],
+            help=MARKET_REGIME,
         )
     with col2:
         st.metric(
@@ -460,7 +463,7 @@ def main():
             value=f"{srs:.0f} / 100",
             delta=level,
             delta_color="inverse" if srs >= 51 else "normal",
-            help=KPI_HELP["systemic_risk"],
+            help=SYSTEMIC_RISK,
         )
     with col3:
         st.metric(
@@ -468,7 +471,7 @@ def main():
             value=f"↑ {bull_pct}% / ↓ {bear_pct}%",
             delta=f"{sentiment.get('n_items', 0)} articles · weighted",
             delta_color="off",
-            help=KPI_HELP["news_sentiment"],
+            help=NEWS_SENTIMENT,
         )
     with col4:
         st.metric(
@@ -476,15 +479,15 @@ def main():
             value=len(signals),
             delta="insider · options · congress",
             delta_color="off",
-            help=KPI_HELP["alpha_signals"],
+            help=ALPHA_SIGNALS,
         )
     with col5:
         st.metric(
-            label="Market Tickers",
-            value=len(market),
-            delta="FRED + Yahoo Finance",
+            label="Data Freshness",
+            value=fresh_text.lstrip("● ⚠ ○ "),
+            delta=f"{len(market)} tickers cached",
             delta_color="off",
-            help=KPI_HELP["market_tickers"],
+            help=DATA_FRESHNESS,
         )
 
     st.divider()

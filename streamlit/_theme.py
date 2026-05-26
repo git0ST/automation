@@ -376,48 +376,4 @@ def status_pill(label: str, kind: str = "live") -> str:
     return f'<span class="status-pill {kind}">{label}</span>'
 
 
-# Centralized KPI tooltips — single source of truth for hover explanations
-KPI_HELP = {
-    "market_regime":
-        "Aladdin-inspired classification of macro environment into one of 4 quadrants "
-        "(Goldilocks / Reflation / Stagflation / Deflation), based on growth + inflation signals.",
-    "systemic_risk":
-        "Composite 0-100 risk score (SRS) blending VIX, yield curve, credit spreads, "
-        "fear & greed, and labor market signals. Higher = more systemic stress.",
-    "news_sentiment":
-        "Bull/bear % of 200 most recent articles, source-credibility weighted "
-        "(Bloomberg/Reuters > general news > social).",
-    "alpha_signals":
-        "Non-public alpha events: SEC EDGAR insider trades, unusual options flow, "
-        "Congressional trades, FINRA short interest, credit spread shifts.",
-    "market_tickers":
-        "Number of ticker snapshots loaded from FRED + Yahoo Finance for macro indicators.",
-    "var_95":
-        "Value at Risk (95%): The 1-day loss exceeded only 5% of trading days, "
-        "estimated from historical daily returns (no normality assumption).",
-    "var_99":
-        "Value at Risk (99%): Tail loss estimate — exceeded only 1% of trading days.",
-    "cvar_95":
-        "Conditional VaR / Expected Shortfall: Average loss in the worst 5% of days. "
-        "More robust than VaR for tail-risk reporting.",
-    "max_drawdown":
-        "Peak-to-trough decline over the period. Captures worst historical loss path.",
-    "sharpe":
-        "Sharpe ratio: excess return per unit of volatility. ≥1 is good, ≥2 is excellent.",
-    "sortino":
-        "Sortino ratio: like Sharpe but penalizes only downside volatility — better for asymmetric returns.",
-    "annual_vol":
-        "Annualised volatility = daily std × √252. Higher = more dispersed returns.",
-    "beta":
-        "Sensitivity to SPY (S&P 500). β=1 moves with market; β>1 amplifies; β<0 inverse-correlated.",
-    "portfolio_var":
-        "Portfolio-level VaR using EWMA-weighted covariance for adaptive risk estimation.",
-    "portfolio_sharpe":
-        "Weighted-portfolio Sharpe ratio over the lookback period.",
-    "confidence":
-        "How strongly the macro signals agree on the regime classification (0-100%). "
-        "Higher = stronger consensus from yield curve, VIX, CPI, unemployment.",
-    "transition_risk":
-        "Probability of regime shift in coming weeks, based on signal proximity to "
-        "quadrant boundaries (low/medium/high).",
-}
+# KPI tooltips moved to _kpi_help.py (single source of truth, how-to-use focused)
