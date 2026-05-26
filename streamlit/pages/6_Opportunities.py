@@ -202,6 +202,30 @@ def main():
     with st.spinner(f"Scanning {len(universe)} tickers — multi-factor analysis…"):
         results = scan_universe(tuple(universe))
 
+    # Log predictions for backtest tracking (only confident, non-neutral ones)
+    try:
+        from shared.prediction_tracker import log_prediction
+        logged = 0
+        for r in results:
+            if r["confidence"] >= 50 and r["direction"] != "neutral":
+                ok = log_prediction(
+                    ticker=r["ticker"],
+                    direction=r["direction"],
+                    confidence_pct=r["confidence"],
+                    price=r["price"],
+                    source_page="opportunities",
+                    components=r.get("components"),
+                    quant_score=r.get("quant_score"),
+                    quant_grade=r.get("quant_grade"),
+                )
+                if ok:
+                    logged += 1
+        if logged:
+            st.caption(f"📝 Logged {logged} predictions for backtest tracking "
+                       "(see Track Record page).")
+    except Exception:
+        pass
+
     if not results:
         st.error("Scan returned no usable data. Try Refresh or fewer tickers.")
         return

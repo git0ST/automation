@@ -143,6 +143,98 @@ def _render_sector_rotation():
         st.caption(f"Sector chart failed: {e}")
 
 
+def _render_alert_banner():
+    """Show unacknowledged alerts as banners at the top."""
+    try:
+        from shared.alerts import recent_events, acknowledge_event
+        events = recent_events(limit=5, unacknowledged_only=True)
+    except Exception:
+        events = []
+    if not events:
+        return
+
+    for ev in events:
+        lvl = ev.get("level", "info")
+        icon_emoji = "🔴" if lvl == "critical" else "🟡" if lvl == "warning" else "🔵"
+        col_msg, col_ack = st.columns([10, 1])
+        with col_msg:
+            st.markdown(
+                f"<div style='background:#131825;border-left:3px solid "
+                f"{'#ff5773' if lvl=='critical' else '#ffaa00' if lvl=='warning' else '#4c8bf5'};"
+                f"padding:10px 16px;border-radius:4px;margin-bottom:6px'>"
+                f"{icon_emoji} <b>{ev.get('ticker') or 'SYSTEM'}</b> — {ev.get('message', '')}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_ack:
+            if st.button("✓", key=f"ack_{ev['id']}", help="Acknowledge", use_container_width=True):
+                acknowledge_event(ev["id"])
+                st.rerun()
+
+
+def _render_diff_section():
+    """Show 'What changed since yesterday' panel."""
+    try:
+        from shared.diff_engine import summary
+        diff = summary()
+    except Exception:
+        return
+
+    if not diff or not any(diff.values()):
+        return
+
+    with st.expander("🔄 What changed since yesterday", expanded=True):
+        col1, col2, col3 = st.columns(3)
+
+        # Regime diff
+        reg = diff.get("regime") or {}
+        with col1:
+            if reg.get("changed"):
+                cur = reg["current"]["label"]
+                prev = reg["previous"]["label"]
+                st.markdown(f"**Regime shifted** 🚨")
+                st.markdown(f"`{prev}` → **`{cur}`**")
+            elif reg.get("current"):
+                g_d = reg.get("growth_delta", 0)
+                i_d = reg.get("inflation_delta", 0)
+                st.markdown(f"**Regime: {reg['current']['label']}** (stable)")
+                st.caption(f"Growth Δ {g_d:+.3f} · Inflation Δ {i_d:+.3f}")
+            else:
+                st.caption("Regime data unavailable")
+
+        # Risk diff
+        risk = diff.get("risk") or {}
+        with col2:
+            if risk.get("current"):
+                cur = risk["current"]
+                delta = risk.get("srs_delta", 0)
+                arrow = "🔼" if delta > 1 else "🔽" if delta < -1 else "—"
+                st.markdown(f"**SRS: {cur.get('srs', 0):.0f}/100** {arrow}")
+                st.caption(f"Δ {delta:+.1f} · {cur.get('level', '—')}")
+            else:
+                st.caption("Risk data unavailable")
+
+        # Sentiment diff
+        sent = diff.get("sentiment") or {}
+        with col3:
+            if sent.get("current") and sent["current"].get("total", 0) > 0:
+                b_d = sent.get("bull_delta", 0)
+                arrow = "🟢" if b_d > 5 else "🔴" if b_d < -5 else "—"
+                st.markdown(f"**Sentiment shift** {arrow}")
+                st.caption(f"Bull Δ {b_d:+.1f}pp · {sent['current']['total']} articles")
+            else:
+                st.caption("Sentiment data unavailable")
+
+        # New signals
+        sigs = diff.get("signals") or {}
+        if sigs.get("new_count", 0) > 0:
+            st.divider()
+            st.markdown(f"**🆕 {sigs['new_count']} new signals in last 24h**")
+            cols = st.columns(min(4, len(sigs.get("by_source", {}))))
+            for col, (src, count) in zip(cols, sigs.get("by_source", {}).items()):
+                col.metric(src.upper(), count)
+
+
 def _format_freshness(minutes_ago: float | None) -> tuple[str, str]:
     """Returns (display_text, status_kind). status_kind: live | stale | error."""
     if minutes_ago is None:
@@ -238,9 +330,11 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
         st.page_link("pages/1_Markets.py",           label="📈 Markets")
         st.page_link("pages/6_Opportunities.py",     label="🎯 Opportunities")
         st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Detail")
+        st.page_link("pages/8_Options_Flow.py",      label="⚡ Options Flow")
         st.page_link("pages/2_Risk.py",              label="📊 Risk & VaR")
         st.page_link("pages/3_Research.py",          label="🔬 AI Research")
         st.page_link("pages/4_Portfolio.py",         label="💼 Portfolio")
+        st.page_link("pages/7_Track_Record.py",      label="📈 Track Record")
         st.divider()
 
         # Pipeline trigger CTA
@@ -302,6 +396,9 @@ def main():
                      help="Clears Streamlit cache and re-reads from Supabase (does NOT trigger pipeline)"):
             st.cache_data.clear()
             st.rerun()
+
+    # ── Active alert banners (acknowledged-aware) ───────────────────────────
+    _render_alert_banner()
 
     # If data is stale (>2 hours), surface a prominent CTA to trigger pipeline
     if minutes_ago is not None and minutes_ago > 120:
@@ -390,6 +487,9 @@ def main():
         )
 
     st.divider()
+
+    # ── What changed since yesterday ────────────────────────────────────────
+    _render_diff_section()
 
     # ── Live Markets — professional ticker cards with logos ─────────────────
     st.markdown("#### 📈 Live Markets")
