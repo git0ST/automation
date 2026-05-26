@@ -36,6 +36,113 @@ from _components import (ticker_card, render_ticker_grid, news_item_card,
 apply_theme()
 
 
+# Sector ETF proxies — used to show "money flowing into X" rotation
+SECTOR_ETFS = {
+    "Technology":             ("XLK",  "Tech"),
+    "Financials":             ("XLF",  "Fin"),
+    "Energy":                 ("XLE",  "Energy"),
+    "Healthcare":             ("XLV",  "Health"),
+    "Consumer Discretionary": ("XLY",  "Cons Disc"),
+    "Consumer Staples":       ("XLP",  "Cons Stap"),
+    "Industrials":            ("XLI",  "Indust"),
+    "Materials":              ("XLB",  "Materials"),
+    "Real Estate":             ("XLRE", "Real Est"),
+    "Utilities":              ("XLU",  "Util"),
+    "Communication":          ("XLC",  "Comm"),
+}
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _sector_rotation_data() -> list[dict]:
+    """Fetch 5-day returns for the 11 GICS sector SPDR ETFs."""
+    try:
+        import yfinance as yf
+        rows = []
+        for sector, (etf, short) in SECTOR_ETFS.items():
+            try:
+                hist = yf.Ticker(etf).history(period="10d", interval="1d", auto_adjust=True)
+                if hist.empty or len(hist) < 5:
+                    continue
+                last = float(hist["Close"].iloc[-1])
+                week_ago = float(hist["Close"].iloc[-5])
+                ret_5d = (last / week_ago - 1) * 100
+                # Use volume × price as a market-cap-ish size proxy
+                size = float(hist["Volume"].iloc[-5:].mean()) * last
+                rows.append({
+                    "sector": sector,
+                    "short":  short,
+                    "etf":    etf,
+                    "ret_5d": round(ret_5d, 2),
+                    "price":  round(last, 2),
+                    "size":   size,
+                })
+            except Exception:
+                continue
+        return rows
+    except Exception:
+        return []
+
+
+def _render_sector_rotation():
+    rows = _sector_rotation_data()
+    if not rows:
+        st.caption("Sector data unavailable — Yahoo Finance may be rate-limited.")
+        return
+    try:
+        import plotly.express as px
+        import pandas as pd
+        df = pd.DataFrame(rows)
+        fig = px.treemap(
+            df,
+            path=[px.Constant("Sectors"), "sector"],
+            values="size",
+            color="ret_5d",
+            color_continuous_scale=[
+                (0.0, "#7c1d1d"),
+                (0.35, "#ff5773"),
+                (0.5, "#1a2034"),
+                (0.65, "#00d68f"),
+                (1.0, "#0d5e2a"),
+            ],
+            color_continuous_midpoint=0,
+            range_color=[-3, 3],
+            custom_data=["short", "ret_5d", "price", "etf"],
+        )
+        fig.update_traces(
+            textinfo="label+text",
+            text=df.apply(lambda r: f"<b>{r['ret_5d']:+.2f}%</b><br>{r['etf']}", axis=1),
+            textfont=dict(size=13, color="white", family="IBM Plex Mono"),
+            marker=dict(line=dict(color=COLORS["bg"], width=2)),
+            hovertemplate="<b>%{label}</b> (%{customdata[3]})<br>"
+                          "5-day return: %{customdata[1]:+.2f}%<br>"
+                          "Last: $%{customdata[2]:,.2f}<extra></extra>",
+        )
+        fig.update_layout(
+            margin=dict(l=0, r=0, t=10, b=0),
+            paper_bgcolor=COLORS["bg"], plot_bgcolor=COLORS["bg"],
+            font=dict(color=COLORS["text"], family="Inter"),
+            height=380,
+            coloraxis_colorbar=dict(
+                title="5-day %", thickness=12, len=0.7,
+                tickfont=dict(color=COLORS["text"], family="IBM Plex Mono"),
+            ),
+        )
+        st.plotly_chart(fig, use_container_width=True, theme=None)
+
+        # Quick takeaway
+        df_sorted = df.sort_values("ret_5d", ascending=False)
+        leader  = df_sorted.iloc[0]
+        laggard = df_sorted.iloc[-1]
+        st.caption(
+            f"**Inflow leader:** {leader['sector']} ({leader['ret_5d']:+.2f}% / 5d). "
+            f"**Outflow laggard:** {laggard['sector']} ({laggard['ret_5d']:+.2f}% / 5d). "
+            "Rotation is typically a leading indicator of regime change — money flows "
+            "into expected outperformers ~1-2 weeks before consensus catches up."
+        )
+    except Exception as e:
+        st.caption(f"Sector chart failed: {e}")
+
+
 def _format_freshness(minutes_ago: float | None) -> tuple[str, str]:
     """Returns (display_text, status_kind). status_kind: live | stale | error."""
     if minutes_ago is None:
@@ -129,8 +236,9 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
         st.markdown("**Navigation**")
         st.page_link("app.py",                       label="🏠 Overview")
         st.page_link("pages/1_Markets.py",           label="📈 Markets")
+        st.page_link("pages/6_Opportunities.py",     label="🎯 Opportunities")
         st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Detail")
-        st.page_link("pages/2_Risk.py",              label="🎯 Risk & VaR")
+        st.page_link("pages/2_Risk.py",              label="📊 Risk & VaR")
         st.page_link("pages/3_Research.py",          label="🔬 AI Research")
         st.page_link("pages/4_Portfolio.py",         label="💼 Portfolio")
         st.divider()
@@ -305,6 +413,14 @@ def main():
     if regime:
         st.markdown("#### 🌐 Market Regime")
         st.markdown(regime_card(regime), unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Sector Rotation heatmap ──────────────────────────────────────────────
+    st.markdown("#### 🔥 Sector Rotation · 5-day momentum")
+    st.caption("Where capital is flowing. Each tile sized by sector market cap, "
+               "colored by 5-day return. Green = inflows, red = outflows.")
+    _render_sector_rotation()
 
     st.divider()
 

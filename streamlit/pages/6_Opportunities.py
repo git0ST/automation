@@ -1,0 +1,382 @@
+"""Opportunity Scanner — ranked high-conviction setups across the watchlist.
+
+Runs the composite prediction engine + multi-factor quant score across 50+
+stocks and surfaces:
+  - Top Bullish (highest confidence + bullish direction)
+  - Top Bearish (highest confidence + bearish direction)
+  - High Quant Score (A/A+ across factors)
+
+For each setup the breakdown shows: which signals fired, confidence,
+quant grade, 1-click drill-down to Stock Detail page.
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+for p in (ROOT, ROOT / "projects" / "daily_digest"):
+    sp = str(p)
+    if sp not in sys.path:
+        sys.path.insert(0, sp)
+
+import streamlit as st
+
+st.set_page_config(page_title="Opportunities · INTL", page_icon="🎯", layout="wide")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _theme         import apply_theme, COLORS, status_pill
+from _stock_analysis import (technical_signal, sentiment_signal, analyst_signal,
+                              vol_signal, composite_prediction)
+from _quant_score   import compute_quant_score
+from _components    import TICKER_META
+apply_theme()
+
+
+# Default scan universe — diversified across mega cap + sectors
+SCAN_UNIVERSE = [
+    # Mega cap tech
+    "NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "AVGO", "ORCL",
+    # Semis
+    "AMD", "INTC", "QCOM", "ARM", "SMCI", "TSM", "MU", "MRVL",
+    # Software
+    "CRM", "ADBE", "NOW", "PLTR", "CRWD", "PANW", "SHOP",
+    # Financials
+    "JPM", "GS", "MS", "BAC", "BRK-B", "V", "MA", "BLK",
+    # Energy
+    "XOM", "CVX", "COP", "SLB",
+    # Healthcare
+    "UNH", "LLY", "JNJ", "MRK", "ABBV",
+    # Consumer
+    "WMT", "COST", "HD", "MCD", "DIS", "NFLX",
+    # Industrials
+    "BA", "CAT", "GE", "RTX",
+]
+
+
+@st.cache_data(ttl=900, show_spinner=False)  # 15 min — scan is expensive
+def scan_universe(tickers: tuple, period: str = "1y") -> list[dict]:
+    """For each ticker: fetch data, compute prediction + quant score.
+
+    Returns list of dicts with all signals merged.
+    """
+    import numpy as np
+    import yfinance as yf
+
+    try:
+        from shared.finnhub_client import (is_available, basic_financials_sync,
+                                            recommendations_sync, quote_sync,
+                                            normalize_quote)
+        finnhub_ready = is_available()
+    except ImportError:
+        finnhub_ready = False
+        basic_financials_sync = recommendations_sync = quote_sync = None
+
+    results = []
+    for ticker in tickers:
+        try:
+            # Historical for momentum + technicals
+            hist = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=True)
+            if hist.empty or len(hist) < 50:
+                continue
+
+            closes = hist["Close"].tolist()
+            arr    = np.array(closes)
+            price  = float(arr[-1])
+
+            sma_20  = float(arr[-20:].mean())  if len(arr) >= 20  else None
+            sma_50  = float(arr[-50:].mean())  if len(arr) >= 50  else None
+            sma_200 = float(arr[-200:].mean()) if len(arr) >= 200 else None
+
+            # RSI 14
+            deltas = np.diff(arr[-15:])
+            ups = deltas[deltas > 0].sum() if any(deltas > 0) else 0
+            downs = -deltas[deltas < 0].sum() if any(deltas < 0) else 1e-9
+            rs = ups / downs if downs else 0
+            rsi_14 = 100 - 100 / (1 + rs) if rs else 50
+
+            # Multi-period returns (momentum factor)
+            ret_3m  = (arr[-1] / arr[-63] - 1) * 100  if len(arr) >= 63  else None
+            ret_6m  = (arr[-1] / arr[-126] - 1) * 100 if len(arr) >= 126 else None
+            ret_12m = (arr[-1] / arr[-252] - 1) * 100 if len(arr) >= 252 else (arr[-1] / arr[0] - 1) * 100
+
+            # Finnhub fundamentals + analyst data
+            fin = basic_financials_sync(ticker) if finnhub_ready else {}
+            recs = recommendations_sync(ticker) if finnhub_ready else []
+
+            # Build signal components
+            tech_sig = technical_signal(price, sma_20, sma_50, sma_200, rsi_14)
+            sent_sig = sentiment_signal({})  # per-ticker sentiment skipped for speed
+            anal_sig = analyst_signal(recs)
+            vol_sig_data = vol_signal({})    # GARCH skipped for scan speed
+
+            prediction = composite_prediction(tech_sig, sent_sig, anal_sig, vol_sig_data)
+
+            # Quant score
+            target_upside = None
+            if fin and fin.get("priceTargetMean") and fin.get("priceTargetMean") > 0:
+                target_upside = (fin["priceTargetMean"] / price - 1) * 100
+
+            quant = compute_quant_score(
+                fundamentals=fin,
+                momentum_data={"ret_3m": ret_3m, "ret_6m": ret_6m, "ret_12m": ret_12m},
+                analyst_data={
+                    "eps_revisions_up":   None,
+                    "eps_revisions_down": None,
+                    "target_upside_pct":  target_upside,
+                },
+            )
+
+            chg_1d = (arr[-1] / arr[-2] - 1) * 100 if len(arr) >= 2 else 0
+            meta = TICKER_META.get(ticker, {})
+
+            results.append({
+                "ticker":      ticker,
+                "name":        meta.get("name", ticker),
+                "sector":      meta.get("sector", "—"),
+                "price":       round(price, 2),
+                "chg_1d":      round(chg_1d, 2),
+                "ret_3m":      round(ret_3m, 2)  if ret_3m  is not None else None,
+                "ret_6m":      round(ret_6m, 2)  if ret_6m  is not None else None,
+                "ret_12m":     round(ret_12m, 2) if ret_12m is not None else None,
+                "rsi_14":      round(rsi_14, 1),
+                "vs_sma_50":   round((price / sma_50  - 1) * 100, 2) if sma_50  else None,
+                "vs_sma_200":  round((price / sma_200 - 1) * 100, 2) if sma_200 else None,
+                "direction":   prediction["direction"],
+                "confidence":  prediction["confidence"],
+                "rationale":   prediction["rationale"],
+                "components":  prediction["components"],
+                "quant_score": quant["composite_score"],
+                "quant_grade": quant["composite_grade"],
+                "factors":     quant["factors"],
+            })
+        except Exception:
+            continue
+    return results
+
+
+def main():
+    col_t, col_r = st.columns([6, 1])
+    with col_t:
+        st.title("🎯 Opportunity Scanner")
+        st.caption("Multi-factor screen across the watchlist · ranked by confidence × "
+                   "quant grade. Backtest-inspired Seeking Alpha-style model.")
+    with col_r:
+        st.write("")
+        if st.button("🔄 Refresh", use_container_width=True,
+                     help="Clears cache and re-scans (takes ~30 sec)"):
+            scan_universe.clear()
+            st.rerun()
+
+    # Filter controls
+    col_uni, col_conf, col_dir = st.columns([2, 1, 1])
+    with col_uni:
+        universe = st.multiselect(
+            "Scan universe (defaults to 50-stock S&P diversified set)",
+            SCAN_UNIVERSE, default=SCAN_UNIVERSE, max_selections=80,
+        )
+    with col_conf:
+        min_confidence = st.slider("Min confidence %", 0, 100, 40, step=5,
+                                    help="Only surface setups with composite confidence ≥ this")
+    with col_dir:
+        direction_filter = st.selectbox("Direction", ["All", "Bullish", "Bearish"])
+
+    # Optional: filter by sector
+    with st.expander("⚙ Advanced filters"):
+        col_q, col_rsi, col_t1 = st.columns(3)
+        with col_q:
+            min_quant = st.slider("Min Quant Score", 0, 100, 0, step=10,
+                                   help="0-100. A+ ≥ 95, A ≥ 85, B+ ≥ 75")
+        with col_rsi:
+            rsi_filter = st.selectbox("RSI filter", ["Any", "Oversold (<30)",
+                                                       "Bullish momentum (50-70)",
+                                                       "Overbought (>70)"])
+        with col_t1:
+            trend_filter = st.selectbox("Trend filter", ["Any",
+                                                          "Above SMA 50",
+                                                          "Above SMA 200",
+                                                          "Golden Cross (50>200)"])
+
+    if not universe:
+        st.warning("Select at least one ticker.")
+        return
+
+    with st.spinner(f"Scanning {len(universe)} tickers — multi-factor analysis…"):
+        results = scan_universe(tuple(universe))
+
+    if not results:
+        st.error("Scan returned no usable data. Try Refresh or fewer tickers.")
+        return
+
+    # Apply filters
+    filtered = [r for r in results if r["confidence"] >= min_confidence]
+    if direction_filter == "Bullish":
+        filtered = [r for r in filtered if r["direction"] == "bullish"]
+    elif direction_filter == "Bearish":
+        filtered = [r for r in filtered if r["direction"] == "bearish"]
+    if min_quant > 0:
+        filtered = [r for r in filtered if r["quant_score"] >= min_quant]
+    if rsi_filter == "Oversold (<30)":
+        filtered = [r for r in filtered if r["rsi_14"] < 30]
+    elif rsi_filter == "Bullish momentum (50-70)":
+        filtered = [r for r in filtered if 50 <= r["rsi_14"] <= 70]
+    elif rsi_filter == "Overbought (>70)":
+        filtered = [r for r in filtered if r["rsi_14"] > 70]
+    if trend_filter == "Above SMA 50":
+        filtered = [r for r in filtered if (r.get("vs_sma_50") or 0) > 0]
+    elif trend_filter == "Above SMA 200":
+        filtered = [r for r in filtered if (r.get("vs_sma_200") or 0) > 0]
+    elif trend_filter == "Golden Cross (50>200)":
+        filtered = [
+            r for r in filtered
+            if r.get("vs_sma_50") is not None and r.get("vs_sma_200") is not None
+            and r["vs_sma_50"] > r["vs_sma_200"]
+        ]
+
+    st.divider()
+
+    # Summary KPIs
+    bull_count = sum(1 for r in filtered if r["direction"] == "bullish")
+    bear_count = sum(1 for r in filtered if r["direction"] == "bearish")
+    avg_conf   = sum(r["confidence"] for r in filtered) / len(filtered) if filtered else 0
+    avg_quant  = sum(r["quant_score"] for r in filtered) / len(filtered) if filtered else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Setups matching", len(filtered),
+              delta=f"of {len(results)} scanned")
+    c2.metric("Bullish", bull_count, delta=f"{bull_count/max(len(filtered),1)*100:.0f}%",
+              delta_color="off")
+    c3.metric("Bearish", bear_count, delta=f"{bear_count/max(len(filtered),1)*100:.0f}%",
+              delta_color="off")
+    c4.metric("Avg quant", f"{avg_quant:.0f}", delta=f"Avg conf {avg_conf:.0f}%",
+              delta_color="off")
+
+    st.divider()
+
+    # Tabs: Top Bullish | Top Bearish | All | Quant Leaders
+    tab_bull, tab_bear, tab_quant, tab_all = st.tabs([
+        "🚀 Top Bullish", "📉 Top Bearish", "🏆 Quant Leaders", "📋 All Setups"
+    ])
+
+    with tab_bull:
+        bull = sorted([r for r in filtered if r["direction"] == "bullish"],
+                      key=lambda r: (r["confidence"] * 0.6 + r["quant_score"] * 0.4),
+                      reverse=True)
+        _render_opportunity_list(bull[:15], emphasis="bullish")
+
+    with tab_bear:
+        bear = sorted([r for r in filtered if r["direction"] == "bearish"],
+                      key=lambda r: (r["confidence"] * 0.6 + r["quant_score"] * 0.4),
+                      reverse=True)
+        _render_opportunity_list(bear[:15], emphasis="bearish")
+
+    with tab_quant:
+        # Top by quant score regardless of direction
+        quant_sorted = sorted(filtered, key=lambda r: r["quant_score"], reverse=True)
+        st.caption("Highest-quality fundamentals (Seeking Alpha-style: Value + Growth + "
+                   "Profitability + Momentum + Revisions). Direction-agnostic.")
+        _render_opportunity_list(quant_sorted[:15], emphasis="quant")
+
+    with tab_all:
+        _render_full_table(filtered)
+
+
+def _render_opportunity_list(opportunities: list[dict], emphasis: str = "bullish"):
+    """Render ranked list with rationale + signal breakdown per row."""
+    if not opportunities:
+        st.info("No setups match the current filters. Lower the confidence threshold "
+                "or widen the universe.")
+        return
+
+    for r in opportunities:
+        dir_color = ("#00d68f" if r["direction"] == "bullish"
+                     else "#ff5773" if r["direction"] == "bearish"
+                     else "#ffaa00")
+        grade_color = ("#00d68f" if r["quant_grade"] in ("A+", "A")
+                       else "#ffaa00" if r["quant_grade"] in ("B+", "B")
+                       else "#ff8800" if r["quant_grade"] in ("C+", "C")
+                       else "#ff5773")
+        meta = TICKER_META.get(r["ticker"], {})
+        sector = meta.get("sector") or r.get("sector") or "—"
+
+        with st.expander(
+            f"**{r['ticker']}** · {meta.get('name', r['ticker'])} · "
+            f"{r['direction'].upper()} · {r['confidence']:.0f}% conf · "
+            f"Quant {r['quant_grade']}",
+            expanded=False,
+        ):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Price", f"${r['price']:,.2f}",
+                      delta=f"{r['chg_1d']:+.2f}% today")
+            c2.metric("Direction", r["direction"].upper(),
+                      delta=f"{r['confidence']:.0f}% conf", delta_color="off")
+            c3.metric("Quant", f"{r['quant_grade']}",
+                      delta=f"{r['quant_score']:.0f}/100", delta_color="off")
+            c4.metric("Sector", sector, delta_color="off")
+
+            st.markdown(f"**Rationale:** {r['rationale']}")
+
+            # Factor grades
+            f = r["factors"]
+            st.markdown("**Quant factor grades**")
+            cc1, cc2, cc3, cc4, cc5 = st.columns(5)
+            cc1.metric("Value",     f["value"]["grade"],
+                       delta=f"{f['value']['score']:.0f}", delta_color="off")
+            cc2.metric("Growth",    f["growth"]["grade"],
+                       delta=f"{f['growth']['score']:.0f}", delta_color="off")
+            cc3.metric("Profit",    f["profit"]["grade"],
+                       delta=f"{f['profit']['score']:.0f}", delta_color="off")
+            cc4.metric("Momentum",  f["momentum"]["grade"],
+                       delta=f"{f['momentum']['score']:.0f}", delta_color="off")
+            cc5.metric("Revisions", f["revisions"]["grade"],
+                       delta=f"{f['revisions']['score']:.0f}", delta_color="off")
+
+            # Returns
+            tt1, tt2, tt3 = st.columns(3)
+            tt1.metric("3M return", f"{r.get('ret_3m', 0):+.1f}%" if r.get("ret_3m") is not None else "—")
+            tt2.metric("6M return", f"{r.get('ret_6m', 0):+.1f}%" if r.get("ret_6m") is not None else "—")
+            tt3.metric("12M return", f"{r.get('ret_12m', 0):+.1f}%" if r.get("ret_12m") is not None else "—")
+
+            if st.button(f"🔍 Open {r['ticker']} in Stock Detail",
+                         key=f"detail_{r['ticker']}", use_container_width=True):
+                st.session_state["detail_ticker"] = r["ticker"]
+                st.switch_page("pages/5_Stock_Detail.py")
+
+
+def _render_full_table(opportunities: list[dict]):
+    """Compact sortable table view."""
+    import pandas as pd
+    if not opportunities:
+        st.info("No setups match the current filters.")
+        return
+    rows = []
+    for r in opportunities:
+        rows.append({
+            "Ticker":      r["ticker"],
+            "Name":        TICKER_META.get(r["ticker"], {}).get("name", r["ticker"])[:30],
+            "Direction":   r["direction"].upper(),
+            "Confidence":  r["confidence"],
+            "Quant Grade": r["quant_grade"],
+            "Quant":       r["quant_score"],
+            "Price":       r["price"],
+            "1D %":        r["chg_1d"],
+            "3M %":        r.get("ret_3m"),
+            "6M %":        r.get("ret_6m"),
+            "RSI":         r["rsi_14"],
+        })
+    df = pd.DataFrame(rows).set_index("Ticker")
+    st.dataframe(
+        df,
+        use_container_width=True,
+        column_config={
+            "Confidence": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
+            "Quant":      st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
+            "Price":      st.column_config.NumberColumn(format="$%.2f"),
+            "1D %":       st.column_config.NumberColumn(format="%+.2f%%"),
+            "3M %":       st.column_config.NumberColumn(format="%+.1f%%"),
+            "6M %":       st.column_config.NumberColumn(format="%+.1f%%"),
+            "RSI":        st.column_config.NumberColumn(format="%.0f"),
+        },
+        height=min(len(rows) * 36 + 40, 600),
+    )
+
+
+main()
