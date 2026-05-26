@@ -43,6 +43,7 @@ def apply_theme() -> None:
 _SIDEBAR_TOGGLE_JS = """
 <script>
 (function() {
+  // Native Streamlit sidebar-toggle elements — multiple selectors for cross-version coverage
   const SELECTORS = [
     '[data-testid="stSidebarCollapsedControl"]',
     '[data-testid="collapsedControl"]',
@@ -51,43 +52,74 @@ _SIDEBAR_TOGGLE_JS = """
     'header button[kind="header"]',
     'header button[kind="headerNoPadding"]',
   ];
-  const STYLE = `
+
+  // Style applied to the native toggle when it's the collapsed/expand button
+  // position:fixed pins it to viewport so browser chrome/tabs can never cover it
+  const FIXED_STYLE = `
+    position: fixed !important;
+    top: 14px !important;
+    left: 14px !important;
     background: #4c8bf5 !important;
     color: #ffffff !important;
     border: none !important;
     border-radius: 6px !important;
     padding: 8px !important;
-    min-width: 42px !important;
-    min-height: 42px !important;
+    width: 42px !important;
+    height: 42px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     visibility: visible !important;
     opacity: 1 !important;
-    box-shadow: 0 0 0 2px #4c8bf5, 0 4px 10px rgba(76, 139, 245, 0.35) !important;
+    box-shadow: 0 0 0 2px #4c8bf5, 0 4px 14px rgba(76, 139, 245, 0.5) !important;
     cursor: pointer !important;
-    z-index: 9999 !important;
-    margin: 8px !important;
+    z-index: 999999 !important;
   `;
 
-  function paintToggle(el) {
-    if (!el) return;
-    el.style.cssText = STYLE;
-    // Force the icon (SVG or Material Symbol) to be white
-    el.querySelectorAll('svg, svg path, svg g').forEach(svg => {
-      svg.style.fill = '#ffffff';
+  // For the close button inside an OPEN sidebar (lives inside the sidebar DOM,
+  // so should stay in place — just style it cobalt)
+  const INSIDE_STYLE = `
+    background: #4c8bf5 !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 6px !important;
+    width: 36px !important;
+    height: 36px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    cursor: pointer !important;
+  `;
+
+  function paintIcon(el) {
+    el.querySelectorAll('svg').forEach(svg => {
       svg.style.color = '#ffffff';
+      svg.style.fill = '#ffffff';
       svg.style.opacity = '1';
+      svg.style.width = '20px';
+      svg.style.height = '20px';
+    });
+    el.querySelectorAll('svg path, svg g').forEach(p => {
+      p.style.fill = '#ffffff';
     });
     el.querySelectorAll('[class*="material-symbol"], [data-testid*="Icon"]').forEach(sym => {
       sym.style.color = '#ffffff';
       sym.style.fontSize = '22px';
       sym.style.opacity = '1';
     });
-    // Fallback: inject ☰ as button text if it's completely empty
+    // Last-resort fallback character
     if (!el.querySelector('svg') && !el.querySelector('[class*="material"]') && !el.textContent.trim()) {
-      el.innerHTML = '<span style="color:white;font-size:20px;font-weight:700">☰</span>';
+      el.innerHTML = '<span style="color:white;font-size:20px;font-weight:700;line-height:1">☰</span>';
     }
+  }
+
+  function paintToggle(el) {
+    if (!el) return;
+    // Detect whether this is the collapsed button (lives in <header>) or the
+    // close button (lives inside [data-testid="stSidebar"])
+    const isInsideSidebar = el.closest('[data-testid="stSidebar"]') !== null;
+    el.style.cssText = isInsideSidebar ? INSIDE_STYLE : FIXED_STYLE;
+    paintIcon(el);
   }
 
   function ensureVisible() {
@@ -96,19 +128,15 @@ _SIDEBAR_TOGGLE_JS = """
     }
   }
 
-  // Initial run + retries
   ensureVisible();
-  setTimeout(ensureVisible, 500);
-  setTimeout(ensureVisible, 1500);
+  setTimeout(ensureVisible, 300);
+  setTimeout(ensureVisible, 1000);
   setTimeout(ensureVisible, 3000);
 
-  // Watch for DOM mutations (Streamlit re-renders frequently)
   const observer = new MutationObserver(() => ensureVisible());
   if (document.body) {
     observer.observe(document.body, { childList: true, subtree: true });
   }
-
-  // Re-apply every 2 seconds as belt-and-braces (cheap, no perf impact)
   setInterval(ensureVisible, 2000);
 })();
 </script>
