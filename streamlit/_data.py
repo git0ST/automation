@@ -287,9 +287,40 @@ def load_regime_risk() -> tuple[dict, dict, list[str], str]:
 
 # ── Market prices (yfinance batched) ─────────────────────────────────────────
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_market_prices(tickers: tuple) -> dict:
-    """Batched yfinance fetch — single API call for N tickers."""
+    """Real-time prices via Finnhub (if FINNHUB_API_KEY set), else 15-min
+    delayed yfinance. Cached 60s — Finnhub free tier rate-limits to 60/min."""
+    if not tickers:
+        return {}
+
+    # Try Finnhub real-time first
+    try:
+        from shared.finnhub_client import is_available, quotes_batch_sync, normalize_quote
+        if is_available():
+            quotes = quotes_batch_sync([t for t in tickers if not t.startswith("^")])
+            result = {}
+            for sym, q in quotes.items():
+                n = normalize_quote(sym, q)
+                if n:
+                    result[sym] = n
+            # Finnhub doesn't cover Yahoo indices (^GSPC, ^IXIC, ^DJI, ^VIX) —
+            # fetch those from yfinance separately
+            yahoo_only = [t for t in tickers if t.startswith("^") or t.endswith("-USD")]
+            if yahoo_only:
+                yf_data = _yfinance_fallback(tuple(yahoo_only))
+                result.update(yf_data)
+            if result:
+                return result
+    except Exception:
+        pass
+
+    # Fallback: yfinance (15-min delayed but always works)
+    return _yfinance_fallback(tickers)
+
+
+def _yfinance_fallback(tickers: tuple) -> dict:
+    """yfinance batched fetch — used when Finnhub unavailable or for indices."""
     if not tickers:
         return {}
     try:

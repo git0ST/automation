@@ -47,6 +47,7 @@ jobs:
       SUPABASE_ANON_KEY:    ${{ secrets.SUPABASE_ANON_KEY }}
       GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
       GOOGLE_API_KEY:       ${{ secrets.GOOGLE_API_KEY }}
+      FINNHUB_API_KEY:      ${{ secrets.FINNHUB_API_KEY }}
       LLM_PROVIDER:         cloud
       PYTHONUNBUFFERED:     "1"
 
@@ -137,6 +138,8 @@ jobs:
                   "edgar":         25, "congress":     15,
                   "finra":         15, "fred":          20,
                   "credit":         8,
+                  # Real-time news (Finnhub free tier — 60/min)
+                  "finnhub":       25,
                   # Wire services + financial media
                   "rss":           25, "gdelt":        20,
                   # Market data

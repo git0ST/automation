@@ -17,6 +17,7 @@ from .finra_short import fetch_finra_short
 from .credit_spreads import fetch_credit_spreads
 from .forex import fetch_forex
 from .commodities import fetch_commodities
+from .finnhub_news import fetch_finnhub_news
 
 SOURCE_FETCHERS = {
     "hackernews":    fetch_hackernews,
@@ -38,6 +39,7 @@ SOURCE_FETCHERS = {
     "credit":        fetch_credit_spreads,
     "forex":         fetch_forex,
     "commodity":     fetch_commodities,
+    "finnhub":       fetch_finnhub_news,
 }
 
 # Finance-focused sources only — Bloomberg terminal scope
@@ -46,6 +48,8 @@ SOURCE_FETCHERS = {
 ALL_SOURCES = [
     # Regulatory / primary sources (highest signal)
     "edgar", "congress", "finra", "fred", "credit",
+    # Real-time finance news (Finnhub API)
+    "finnhub",
     # Wire services + financial media
     "rss", "gdelt",
     # Market data (prices, snapshots, indicators)
