@@ -174,6 +174,128 @@ def _render_alert_banner():
                 st.rerun()
 
 
+def _render_todays_setups():
+    """Top 5 highest-conviction setups from the latest pipeline snapshot,
+    each with concrete entry/stop/target/position size."""
+    client = supabase_client()
+    if not client:
+        return
+    try:
+        rows = (client.table("v_latest_opportunities")
+                .select("*")
+                .gte("confidence", 60)
+                .neq("direction", "neutral")
+                .order("confidence", desc=True)
+                .limit(5)
+                .execute()).data or []
+    except Exception:
+        return
+
+    if not rows:
+        return
+
+    st.markdown("#### 🎯 Today's Top Setups")
+    st.caption("Highest-conviction trades from the latest auto-scan. Click any row "
+               "for the full analysis. Entry/stop/target use 2x ATR — adjust if "
+               "volatility regime changes.")
+
+    # Portfolio value input (session-persisted)
+    if "portfolio_value" not in st.session_state:
+        st.session_state["portfolio_value"] = 100_000
+
+    col_pv, col_action = st.columns([1, 4])
+    with col_pv:
+        st.session_state["portfolio_value"] = st.number_input(
+            "Portfolio $", min_value=1000, max_value=100_000_000,
+            value=int(st.session_state["portfolio_value"]),
+            step=10_000, key="pv_overview",
+            help="Used to size positions below. Stored in this session only.",
+        )
+
+    portfolio = st.session_state["portfolio_value"]
+
+    for r in rows:
+        ticker     = r["ticker"]
+        direction  = r["direction"]
+        confidence = r["confidence"]
+        price      = r.get("price") or 0
+        if price <= 0:
+            continue
+
+        # ATR proxy: use 2% of price as stop distance (conservative default)
+        # since we don't have ATR in the snapshot — could be refined later
+        atr_pct = 0.02
+        if direction == "bullish":
+            stop_pct   = 2 * atr_pct
+            target_pct = 4 * atr_pct
+            stop   = price * (1 - stop_pct)
+            target = price * (1 + target_pct)
+            action_label = "BUY"
+            action_color = "#00d68f"
+        else:
+            stop_pct   = 2 * atr_pct
+            target_pct = 4 * atr_pct
+            stop   = price * (1 + stop_pct)
+            target = price * (1 - target_pct)
+            action_label = "SHORT"
+            action_color = "#ff5773"
+
+        # Position sizing: risk 1% of portfolio scaled by conviction
+        max_risk = portfolio * 0.01 * (0.5 + confidence / 100)
+        position_value = min(max_risk / stop_pct, portfolio * 0.15)
+        shares = position_value / price if price > 0 else 0
+
+        # Strategy names (if any)
+        strategies = r.get("strategies") or []
+        strat_names = ", ".join(s.get("name", "") for s in strategies[:2]) if strategies else None
+
+        from _components import TICKER_META
+        meta = TICKER_META.get(ticker, {})
+        name = meta.get("name", ticker)
+
+        with st.container():
+            cols = st.columns([1, 1, 1, 1, 1, 1, 1])
+            cols[0].markdown(
+                f"<div style='font-weight:700;font-size:16px'>{ticker}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>{name[:18]}</div>",
+                unsafe_allow_html=True,
+            )
+            cols[1].markdown(
+                f"<div style='color:{action_color};font-weight:700;font-size:14px'>{action_label}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>{confidence:.0f}% conf</div>",
+                unsafe_allow_html=True,
+            )
+            cols[2].markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;font-weight:600'>${price:,.2f}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>Entry</div>",
+                unsafe_allow_html=True,
+            )
+            cols[3].markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;color:#ff5773'>${stop:,.2f}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>Stop ({stop_pct*100:.1f}%)</div>",
+                unsafe_allow_html=True,
+            )
+            cols[4].markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;color:#00d68f'>${target:,.2f}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>Target (R/R 2:1)</div>",
+                unsafe_allow_html=True,
+            )
+            cols[5].markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;font-weight:600'>${position_value:,.0f}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>{shares:.1f} sh · "
+                f"{position_value/portfolio*100:.1f}% port</div>",
+                unsafe_allow_html=True,
+            )
+            with cols[6]:
+                if st.button("Open", key=f"setup_{ticker}", use_container_width=True):
+                    st.session_state["detail_ticker"] = ticker
+                    st.switch_page("pages/5_Stock_Detail.py")
+
+            if strat_names:
+                st.caption(f"📌 Matches: {strat_names}")
+            st.markdown("<hr style='margin:6px 0;border-color:#1a2034'>", unsafe_allow_html=True)
+
+
 def _render_diff_section():
     """Show 'What changed since yesterday' panel."""
     try:
@@ -491,6 +613,9 @@ def main():
         )
 
     st.divider()
+
+    # ── Today's Trade Setups — outcome-focused: what to buy/sell right now ──
+    _render_todays_setups()
 
     # ── What changed since yesterday ────────────────────────────────────────
     _render_diff_section()

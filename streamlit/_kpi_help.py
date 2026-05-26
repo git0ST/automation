@@ -1,250 +1,233 @@
-"""KPI tooltips — focused on HOW TO USE each metric, not what it means.
+"""KPI tooltips — plain English, action-first, 2 lines max.
 
-Inspired by Bloomberg Terminal HELP function: every term assumes the reader
-knows the definition. The value of the tooltip is in the operational guidance.
-
-Format: 2 sentences max. Sentence 1 = what the current reading suggests.
-Sentence 2 = decision rule or comparison anchor.
+Every tip answers: what does the current reading mean, and what should
+I do about it? Skip definitions — assume the reader is a trader who
+wants the trade.
 """
 from __future__ import annotations
 
 
-# ── Market structure KPIs ──────────────────────────────────────────────────
+# ── Market structure ───────────────────────────────────────────────────────
 MARKET_REGIME = (
-    "**Use:** Goldilocks/Reflation favor risk-on (equities, growth, EM). "
-    "Stagflation/Deflation favor defensives (bonds, gold, utilities). "
-    "Confidence <50% = mixed signals; reduce position size."
+    "What kind of market we're in. **Goldilocks/Reflation = buy stocks**. "
+    "Stagflation/Deflation = move to bonds + gold. Confidence under 50% → cut position sizes in half."
 )
 
 SYSTEMIC_RISK = (
-    "**Use:** SRS <26 = full risk-on. 26-50 = normal. 51-75 = trim leverage. "
-    ">75 = de-risk aggressively. Add 5% to position sizes per 10pt below 30; "
-    "halve them per 10pt above 60."
+    "Overall stress level, 0-100. Below 26 = safe to load up. 26-50 = normal. "
+    "Above 50 = trim leverage. Above 75 = move to cash."
 )
 
 NEWS_SENTIMENT = (
-    "**Use:** Bull% - Bear% >25 = strong tailwind for long entries. "
-    "Spread <-25 = avoid new longs. Always compared to article count — "
-    "20%/5% spread on 200 articles beats 60%/30% on 5 articles."
+    "How bullish the news flow is. **Bull% minus Bear% above 25** = tailwind for longs. "
+    "Below -25 = stop buying. Always check article count — wider spreads on more articles is stronger signal."
 )
 
 ALPHA_SIGNALS = (
-    "**Use:** Insider buying / call flow / Congress purchases >2× normal = "
-    "watch for breakout. Cluster of 3+ signals on same name = high-conviction setup."
+    "Quiet money moves: insiders buying, big options trades, Congress filings. "
+    "**3+ signals on the same name in a week = front-run institutions**, position before crowd notices."
 )
 
 
-# ── Price & momentum KPIs ──────────────────────────────────────────────────
+# ── Price & momentum ───────────────────────────────────────────────────────
 PRICE = (
-    "**Use:** Real-time when Finnhub configured. Compare 1D/1W/1M to "
-    "sector ETF (XLK for tech, XLF for finance) — outperformance >2% = "
-    "relative strength leader, ride it."
+    "Real-time when Finnhub configured, else 15-min delayed. "
+    "Compare 1D to sector — outperforming +2% = relative strength, ride the leader."
 )
 
 CHANGE_1D = (
-    "**Use:** Moves >3% on rising volume = institutional flow. "
-    "Combine with sector heatmap — solo movers reverse faster than sector waves."
+    "Today's move. **Above 3% on high volume = institutions buying** — usually continues. "
+    "Solo moves without sector support tend to reverse next day."
 )
 
 CHANGE_1W = (
-    "**Use:** Stronger signal than 1D for swing trades. "
-    "Compare to peer median in same sector — significant divergence = company-specific catalyst."
+    "Best signal for swing trades. Compare to peer average in same sector — "
+    "wide divergence means company-specific news, dig deeper."
 )
 
 CHANGE_1Y = (
-    "**Use:** Compare to S&P 500 (~10%/yr historical). Outperformance "
-    "with rising margins = momentum compounder; outperformance with shrinking "
-    "margins = late-cycle warning."
+    "Beat S&P 500 (~10%/year) with rising margins = compounder, hold long. "
+    "Beat with shrinking margins = late cycle, take profits."
 )
 
 MARKET_CAP = (
-    "**Use:** >$200B = mega cap (low vol, slow growth). $10-200B = large cap. "
-    "$2-10B = mid cap (best risk/reward zone). <$2B = small cap (higher vol, illiquid)."
+    "Total company value. **Mid caps ($2-10B) historically best risk/reward**. "
+    "Mega caps (>$200B) are stable but slow; small caps (<$2B) are volatile and illiquid."
 )
 
 
-# ── Technical KPIs ─────────────────────────────────────────────────────────
+# ── Technical ──────────────────────────────────────────────────────────────
 RSI = (
-    "**Use:** <30 in uptrend = buy the dip zone. >70 = trim or hedge. "
-    "55-65 = healthy momentum. RSI divergence (price up, RSI down) = momentum fading."
+    "Momentum gauge, 0-100. **Below 30 in an uptrend = buy zone**. Above 70 = take profits or hedge. "
+    "55-65 = healthy momentum, hold."
 )
 
 SMA_50 = (
-    "**Use:** Price above SMA50 = medium-term uptrend, hold/buy on pullbacks. "
-    "Sharp break below on volume = trend change, exit longs."
+    "50-day average — medium-term trend. Price above = uptrend (hold/buy dips). "
+    "Sharp break below on volume = trend over, exit."
 )
 
 SMA_200 = (
-    "**Use:** Price above SMA200 = long-term bull case intact. "
-    "Golden Cross (SMA50 > SMA200) on rising volume = institutional accumulation signal."
+    "200-day average — long-term trend. **Above SMA200 + SMA50 above SMA200 = full uptrend**, hold. "
+    "Below SMA200 = avoid going long without strong catalyst."
 )
 
 MACD = (
-    "**Use:** Bullish cross + above zero line = momentum entry. "
-    "Histogram expanding = trend strengthening; contracting = trend exhausting."
+    "Momentum direction. **Bullish cross above zero = entry signal**. "
+    "Histogram growing = trend strengthening. Histogram shrinking = trend ending."
 )
 
 ADX = (
-    "**Use:** >25 = strong trend (follow direction). 15-25 = weak/transitioning. "
-    "<15 = ranging market, use mean-reversion (RSI extremes) instead of trend follow."
+    "Trend strength, 0-100. **Above 25 = trade with the trend** (follow direction). "
+    "Below 15 = market ranging, use oversold/overbought reversal trades instead."
 )
 
 BOLLINGER = (
-    "**Use:** Tag of lower band = oversold bounce zone. Tag of upper band = "
-    "overbought (trim or hedge). Band squeeze (low width) = breakout pending."
+    "Volatility envelope. **Tag of lower band = oversold bounce zone**. "
+    "Tag of upper band = take profits. Band squeeze (tight) = big move coming, watch for breakout."
 )
 
 
-# ── Fundamental KPIs ───────────────────────────────────────────────────────
+# ── Fundamentals ───────────────────────────────────────────────────────────
 PE_RATIO = (
-    "**Use:** Compare to 5-yr median for same stock, not absolute. "
-    "Above median + slowing growth = overvalued; below median + accelerating = entry."
+    "Price relative to earnings. **Compare to the stock's own 5-year average**, not other stocks. "
+    "Above average + slowing growth = overpriced. Below average + accelerating = entry."
 )
 
 EPS = (
-    "**Use:** Track sequential growth. 2 consecutive quarters of accelerating "
-    "EPS growth = upgrade candidate. Quality > magnitude — adjusted vs GAAP gap matters."
+    "Annual profit per share. **Two consecutive quarters of growing EPS = upgrade candidate**. "
+    "Watch for big gap between adjusted EPS and GAAP EPS — bigger gap = lower quality earnings."
 )
 
 DIV_YIELD = (
-    "**Use:** 0% = growth stock (capital appreciation play). 2-4% = balanced. "
-    ">5% = scrutinize sustainability; if dividend > earnings = cut risk high."
+    "Annual dividend ÷ price. **2-4% = healthy income stock**. "
+    "0% = growth stock (no payout, all reinvested). Above 5% = check sustainability, often a red flag."
 )
 
 BETA = (
-    "**Use:** β>1.2 = amplifier (more upside + more drawdown). "
-    "β 0.8-1.2 = standard equity. β<0.7 = defensive (hedge holding). "
-    "β<0 = inverse-correlated (gold miners, VIX ETFs) — use as portfolio hedge."
+    "Sensitivity to S&P 500. **Beta 1 = moves with market. Above 1 = amplified moves both ways**. "
+    "Below 0.7 = defensive (use to lower portfolio risk). Below 0 = inverse (hedge holding)."
 )
 
 
-# ── Risk KPIs ──────────────────────────────────────────────────────────────
+# ── Risk ───────────────────────────────────────────────────────────────────
 VAR_95 = (
-    "**Use:** This is your typical worst day. Size positions so 2× VaR < "
-    "your max single-day drawdown tolerance. If VaR > 4%, expect 1-2 days "
-    "per month at this loss level."
+    "Your typical worst day. **If VaR shows 3%, $10K invested can lose ~$300 on a bad day**. "
+    "Expect this 1-2 days a month. Size positions so 2x VaR < what you can stomach losing."
 )
 
 VAR_99 = (
-    "**Use:** Tail-loss estimate. Hit on roughly 2-3 days per year. "
-    "Compare to your stop distance — if stop_pct < VaR_99, your stop will get "
-    "hit by normal volatility."
+    "Tail-loss estimate. Roughly 2-3 days per year you lose this much or more. "
+    "**If your stop loss is tighter than VaR 99%, normal volatility will hit your stop**."
 )
 
 CVAR = (
-    "**Use:** What you actually lose on the bad days, not the threshold. "
-    "Always larger than VaR. Use this for position sizing — risk = position × CVaR."
+    "Average loss on your worst days (not the threshold — the actual loss). "
+    "**Always larger than VaR**. Use this to size positions: risk = position × CVaR."
 )
 
 MAX_DRAWDOWN = (
-    "**Use:** Historical worst peak-to-trough. Adds 2-3× during bear markets. "
-    "If MaxDD > 35%, treat as cyclical; <20% = quality compounder."
+    "Worst historical peak-to-trough drop. **Above 35% = cyclical stock** (cars, banks, energy). "
+    "Below 20% = quality compounder (Apple, Microsoft type). Expect 2-3x worse in a real bear market."
 )
 
 SHARPE = (
-    "**Use:** >1 = good (better than holding cash + small risk premium). "
-    ">2 = excellent (rare; usually mean-reverting). Negative = stop trading this name."
+    "Return per unit of risk. **Above 1 = good** (better than cash + risk premium). "
+    "Above 2 = excellent (rare, usually short-lived). Negative = stop trading this stock."
 )
 
 SORTINO = (
-    "**Use:** Like Sharpe but ignores upside vol. Better measure for "
-    "asymmetric strategies (covered calls, deep value). >2 = strong risk-adjusted edge."
+    "Like Sharpe but only counts the downside. **Better gauge for stocks with big winners and small losers**. "
+    "Above 2 = strong asymmetric edge, position size up."
 )
 
 ANNUAL_VOL = (
-    "**Use:** Tech ~30-50%, utilities ~15-25%, broad index ~15-20%. "
-    "Use to translate VaR — 30% annual vol ≈ 1.9% daily vol ≈ 3.1% one-day VaR(95%)."
+    "How much the stock swings yearly. **Tech 30-50% · Banks 25-35% · Utilities 15-20% · S&P 15%**. "
+    "Higher vol = wider stops needed, smaller position size."
 )
 
 
-# ── Composite / AI KPIs ────────────────────────────────────────────────────
+# ── Composite / AI ─────────────────────────────────────────────────────────
 CONFIDENCE = (
-    "**Use:** 70%+ = high-conviction (full position). 55-70% = scale in. "
-    "<50% = wait or pass. Confidence ≠ probability of gain — it's "
-    "model agreement × signal quality."
+    "How sure the model is. **Above 70% = high conviction, full position size**. "
+    "55-70% = scale in gradually. Below 50% = wait for better setup."
 )
 
 QUANT_SCORE = (
-    "**Use:** A/A+ = quality core hold (longer hold periods). "
-    "B = solid swing trade candidate. C/D = avoid or short candidate. "
-    "F = stay out unless catalyst-driven."
+    "Fundamental quality grade. **A/A+ = core holding** (longer holds, lower turnover). "
+    "B = solid swing trade. C/D = avoid or short candidate. F = stay out."
 )
 
 QUANT_FACTORS = (
-    "**Use:** A in Profit + A in Growth + B+ Momentum = compounder. "
-    "A in Value + bullish technical = reversal play. F in Profit + bearish = short candidate."
+    "Five factors graded A+ to F. **A in Profit + A in Growth + B+ Momentum = compounder**, hold months. "
+    "A in Value + bullish technical = reversal play, swing trade. F in Profit + bearish = short candidate."
 )
 
 PREDICTION = (
-    "**Use:** Bullish ≥70% conf = act this week. Bearish ≥70% = exit/short. "
-    "Read the signal breakdown — same direction across Technical + Sentiment + "
-    "Analyst = trust the level; one outlier = wait for confirmation."
+    "AI's call combining technical + sentiment + analyst + sector + volatility. "
+    "**Bullish 70%+ = enter this week**. Bearish 70%+ = exit or short. Check signal breakdown — same direction across 3+ signals = trust it."
 )
 
 
-# ── Regime / cycle KPIs ────────────────────────────────────────────────────
+# ── Regime / cycle ─────────────────────────────────────────────────────────
 CONFIDENCE_REGIME = (
-    "**Use:** >70% = regime is durable, lean into its preferred assets. "
-    "40-70% = transitional, reduce concentration. <40% = mixed signals, "
-    "stick to index ETFs until clearer."
+    "How strongly the macro signals agree on regime. **Above 70% = trust the playbook for 3-8 weeks**. "
+    "40-70% = reduce concentration, regime transitioning. Below 40% = stay in index ETFs until clear."
 )
 
 TRANSITION_RISK = (
-    "**Use:** Low = current playbook valid for 3-8 weeks. Medium = "
-    "rebalance toward defensives over 1-2 weeks. High = regime shift imminent, "
-    "actively reduce exposure."
+    "Probability of regime change soon. **Low = current playbook good for weeks**. "
+    "Medium = start shifting toward defensives. High = regime shift imminent, reduce risk now."
 )
 
 
-# ── Cross-source / data quality ────────────────────────────────────────────
+# ── Cross-source / data ────────────────────────────────────────────────────
 HOT_ENTITY = (
-    "**Use:** 3+ sources mentioning same name in 24h = follow within "
-    "1-3 days. Combined with bullish sentiment = front-run institutional positioning."
+    "Same name mentioned across 3+ sources in 24h. **Follow within 1-3 days** before the crowd notices. "
+    "Combined with bullish sentiment = front-run institutional positioning."
 )
 
 DATA_FRESHNESS = (
-    "**Use:** <30 min = use real-time. 30 min - 2h = trust prices, "
-    "skip news-driven trades. >2h = trigger pipeline before acting on signals."
+    "When the pipeline last updated. **Under 30 min = use real-time signals**. "
+    "30 min - 2h = trust prices, skip news-driven trades. Over 2h = trigger pipeline before acting."
 )
 
 
-# ── Forex / FX KPIs ────────────────────────────────────────────────────────
+# ── Forex ──────────────────────────────────────────────────────────────────
 DXY = (
-    "**Use:** DXY ↑ = USD strength → headwind for emerging markets, "
-    "commodities, large-cap exporters (AAPL/MSFT >50% revenue intl). "
-    "DXY breaking 105 = de-risk EM."
+    "Dollar Index. **Rising DXY = bad for emerging markets, commodities, and big exporters** (Apple, Microsoft - half their revenue is international). "
+    "DXY breaking 105 = sell emerging market positions."
 )
 
 EURUSD = (
-    "**Use:** EUR/USD rising = USD weakening = supports gold + EM. "
-    "Falling below 1.05 = USD strength regime; rotate away from non-US assets."
+    "Euro to dollar rate. **Rising = dollar weakening = supports gold and emerging markets**. "
+    "Below 1.05 = strong dollar regime, avoid non-US assets."
 )
 
 USDJPY = (
-    "**Use:** USD/JPY ↑ = yen weakening = supports Japanese exporters "
-    "(7203.T Toyota, 6758.T Sony). Above 150 = BoJ intervention risk."
+    "Dollar to yen rate. **Rising = yen weakening = supports Japanese exporters** (Toyota, Sony). "
+    "Above 150 = Bank of Japan may intervene, watch for sudden reversal."
 )
 
 
-# ── Strategy / position sizing ─────────────────────────────────────────────
+# ── Strategy / sizing ──────────────────────────────────────────────────────
 STOP_PCT = (
-    "**Use:** ATR-based stops adjust to volatility. Always < your VaR(95%). "
-    "Tighter stops = more frequent stops but lower per-trade loss."
+    "Distance from entry to stop loss. **Must be wider than your VaR 95%**. "
+    "Too tight = normal volatility hits your stop. Too wide = position size needs to drop."
 )
 
 POSITION_SIZE = (
-    "**Use:** Kelly-capped at half-Kelly to reduce ruin risk. "
-    "Never risk >1% of portfolio on a single trade. Position % drops "
-    "as stop_pct or vol_regime rise."
+    "How much to invest, sized so a stop-loss hit costs no more than 1% of portfolio. "
+    "**Drops automatically when volatility is high or confidence is low**. Capped at 15% of portfolio."
 )
 
 R_MULTIPLE = (
-    "**Use:** Target/stop ratio. 2:1 minimum; 3:1+ for trend follows; "
-    "1.5:1 ok for mean-reversion scalps. Below 1.5:1 = bad risk-reward, pass."
+    "Reward-to-risk ratio. **2:1 minimum** (target is 2x bigger than stop distance). "
+    "3:1+ for trend follows. Below 1.5:1 = bad trade, skip."
 )
 
 
-# ── Aggregator: get tooltip by short code ──────────────────────────────────
+# ── Aggregator ─────────────────────────────────────────────────────────────
 ALL = {
     "market_regime":      MARKET_REGIME,
     "systemic_risk":      SYSTEMIC_RISK,
