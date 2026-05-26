@@ -220,7 +220,7 @@ jobs:
 
           tables = ["articles", "signals", "regime_snapshots", "risk_scores",
                     "market_snapshots", "credit_spreads", "portfolio_positions",
-                    "api_cache"]
+                    "api_cache", "predictions", "opportunity_snapshots"]
           print()
           print("━━━━━━━━━━ SUPABASE VERIFY ━━━━━━━━━━")
           for t in tables:

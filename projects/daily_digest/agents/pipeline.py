@@ -384,6 +384,19 @@ async def run_pipeline(
             intelligence=intelligence,
         )
 
+        # [10] Run opportunity scanner — populate snapshots for Streamlit pages
+        try:
+            from agents.opportunity_runner import run_scan
+            current_regime = (intelligence or {}).get("regime", {}).get("regime")
+            print(f"  [10] Running opportunity scanner (50 tickers)…")
+            scan_result = run_scan(current_regime=current_regime)
+            print(f"    Scan: {scan_result.get('n_scanned')} scanned, "
+                  f"{scan_result.get('n_written')} written to Supabase "
+                  f"(finnhub={scan_result.get('finnhub')})")
+            store_stats["opportunity_scan"] = scan_result
+        except Exception as e:
+            print(f"  [10] Opportunity scan skipped: {e}")
+
     return {
         "items":        scored,
         "market_data":  market_data,

@@ -29,7 +29,54 @@ from _stock_analysis     import (technical_signal, sentiment_signal, analyst_sig
 from _advanced_technicals import compute_all_technicals
 from _quant_score        import compute_quant_score
 from _components         import TICKER_META
+from _data               import supabase_client
 apply_theme()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_latest_snapshot() -> tuple[list, str | None]:
+    """Read latest opportunity scan from Supabase (populated by pipeline cron).
+
+    Returns (results, scanned_at_iso). Empty list if snapshot table missing.
+    """
+    client = supabase_client()
+    if not client:
+        return [], None
+    try:
+        rows = (client.table("v_latest_opportunities")
+                .select("*")
+                .order("confidence", desc=True)
+                .execute()).data or []
+        if not rows:
+            return [], None
+        # Reshape to match scan_universe() output format
+        results = []
+        scanned_at = rows[0].get("scanned_at")
+        for r in rows:
+            results.append({
+                "ticker":      r["ticker"],
+                "name":        TICKER_META.get(r["ticker"], {}).get("name", r["ticker"]),
+                "sector":      r.get("sector") or TICKER_META.get(r["ticker"], {}).get("sector", "—"),
+                "price":       r.get("price") or 0,
+                "chg_1d":      r.get("chg_1d") or 0,
+                "ret_3m":      r.get("ret_3m"),
+                "ret_6m":      r.get("ret_6m"),
+                "ret_12m":     r.get("ret_12m"),
+                "rsi_14":      r.get("rsi_14") or 50,
+                "vs_sma_50":   r.get("vs_sma_50"),
+                "vs_sma_200":  r.get("vs_sma_200"),
+                "direction":   r.get("direction") or "neutral",
+                "confidence":  r.get("confidence") or 0,
+                "rationale":   r.get("rationale") or "",
+                "components":  r.get("components") or [],
+                "quant_score": r.get("quant_score") or 0,
+                "quant_grade": r.get("quant_grade") or "—",
+                "factors":     r.get("factors") or {},
+                "strategies":  r.get("strategies") or [],
+            })
+        return results, scanned_at
+    except Exception:
+        return [], None
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -234,8 +281,41 @@ def main():
         st.warning("Select at least one ticker.")
         return
 
-    with st.spinner(f"Scanning {len(universe)} tickers — multi-factor analysis…"):
-        results = scan_universe(tuple(universe))
+    # ── Prefer pre-computed snapshot from pipeline cron ─────────────────────
+    snapshot_results, scanned_at = load_latest_snapshot()
+    use_snapshot = bool(snapshot_results)
+
+    # Mode toggle
+    col_mode, col_freshness = st.columns([1, 3])
+    with col_mode:
+        force_live = st.toggle(
+            "🔄 Force live scan",
+            value=False,
+            help="Off (default) = read pipeline-computed snapshot (instant). "
+                 "On = run scanner now (30+ seconds, hits yfinance)",
+        )
+    with col_freshness:
+        if use_snapshot and not force_live and scanned_at:
+            from datetime import datetime, timezone
+            try:
+                ts = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+                age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60
+                st.caption(f"📊 Showing **pipeline snapshot** · scanned "
+                           f"{int(age_min)} min ago · "
+                           f"{len(snapshot_results)} tickers")
+            except Exception:
+                st.caption(f"📊 Pipeline snapshot · {len(snapshot_results)} tickers")
+        elif force_live:
+            st.caption("⚡ Running **live scan** (~30 sec)…")
+        else:
+            st.caption("⚠ No snapshot yet — pipeline hasn't run with migration 011 applied. "
+                       "Running live scan as fallback.")
+
+    if use_snapshot and not force_live:
+        results = snapshot_results
+    else:
+        with st.spinner(f"Scanning {len(universe)} tickers — multi-factor analysis…"):
+            results = scan_universe(tuple(universe))
 
     # Log predictions for backtest tracking + self-improvement
     try:
