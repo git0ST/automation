@@ -64,25 +64,76 @@ def load_per_ticker_sentiment(tickers: tuple, limit: int = 200) -> dict:
 
 # ── Articles (news feed) ─────────────────────────────────────────────────────
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_articles(limit: int = 200) -> tuple[list, str]:
-    """Load articles. Returns (list, status) where status is: ok | empty | missing | error."""
+    """Load articles. Returns (list, status) where status is: ok | empty | missing | error.
+
+    Sort priority: hybrid recency × terminal_score. Try inserted_at column first
+    (post-migration 008), fall back to briefing_date order.
+    """
     client = supabase_client()
     if not client:
         return [], "missing"
+
+    # Prefer inserted_at (intraday resolution) if migration 008 applied
+    for order_col in ("inserted_at", "briefing_date"):
+        try:
+            rows = (client.table("articles")
+                    .select("*")
+                    .order(order_col, desc=True)
+                    .order("terminal_score", desc=True)
+                    .limit(limit)
+                    .execute()).data or []
+            rows = [r for r in rows if isinstance(r, dict)]
+            return rows, "ok" if rows else "empty"
+        except Exception as e:
+            err = str(e)
+            if "schema cache" in err and order_col in err:
+                continue   # column doesn't exist yet, try fallback
+            if _is_missing_table(e, "articles"):
+                return [], "missing"
+            return [], "error"
+    return [], "error"
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_data_freshness() -> dict:
+    """Returns last update timestamps per source + overall pipeline freshness.
+
+    Used by the UI to show 'Data is X minutes old' indicators.
+    """
+    client = supabase_client()
+    if not client:
+        return {}
     try:
-        rows = (client.table("articles")
+        rows = (client.table("v_data_freshness")
                 .select("*")
-                .order("terminal_score", desc=True)
-                .limit(limit)
                 .execute()).data or []
-        # Filter to only dict items (defensive)
-        rows = [r for r in rows if isinstance(r, dict)]
-        return rows, "ok" if rows else "empty"
-    except Exception as e:
-        if _is_missing_table(e, "articles"):
-            return [], "missing"
-        return [], "error"
+        if not rows:
+            return {}
+        # Most recent insert across all sources
+        latest = max((r.get("last_inserted") for r in rows if r.get("last_inserted")),
+                     default=None)
+        return {
+            "per_source": rows,
+            "latest_insert": latest,
+            "minutes_since_latest":
+                min((r.get("minutes_since_last") for r in rows
+                     if r.get("minutes_since_last") is not None), default=None),
+        }
+    except Exception:
+        # v_data_freshness view doesn't exist — fall back to articles direct query
+        try:
+            row = (client.table("articles")
+                   .select("briefing_date,inserted_at")
+                   .order("briefing_date", desc=True)
+                   .limit(1)
+                   .execute()).data or []
+            if row:
+                return {"latest_insert": row[0].get("inserted_at") or row[0].get("briefing_date")}
+        except Exception:
+            pass
+        return {}
 
 
 # ── Signals ──────────────────────────────────────────────────────────────────

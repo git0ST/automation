@@ -29,10 +29,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _theme      import apply_theme, COLORS, REGIME_COLORS, status_pill, KPI_HELP
 from _data       import (load_articles, load_signals, load_market_snapshots,
                          load_regime_risk, load_market_prices, supabase_client,
-                         check_setup_status, load_weighted_sentiment)
+                         check_setup_status, load_weighted_sentiment,
+                         load_data_freshness)
 from _components import (ticker_card, render_ticker_grid, news_item_card,
                          source_badge, regime_card, TICKER_META)
 apply_theme()
+
+
+def _format_freshness(minutes_ago: float | None) -> tuple[str, str]:
+    """Returns (display_text, status_kind). status_kind: live | stale | error."""
+    if minutes_ago is None:
+        return ("○ NO DATA", "error")
+    if minutes_ago < 60:
+        return (f"● {int(minutes_ago)} min ago", "live")
+    if minutes_ago < 360:
+        return (f"● {int(minutes_ago / 60)}h {int(minutes_ago % 60)}m ago", "live")
+    if minutes_ago < 1440:
+        return (f"⚠ {int(minutes_ago / 60)}h ago", "stale")
+    days = int(minutes_ago / 1440)
+    return (f"⚠ {days}d ago", "stale")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -152,25 +167,54 @@ def main():
     regime, risk, missing_tables, source = load_regime_risk()
     render_sidebar(regime, risk, source)
 
-    # ── Header bar ────────────────────────────────────────────────────────────
-    col_title, col_status, col_refresh = st.columns([5, 2, 1])
+    # ── Header bar with multiple freshness indicators ────────────────────────
+    fresh = load_data_freshness()
+    minutes_ago = fresh.get("minutes_since_latest")
+    fresh_text, fresh_kind = _format_freshness(minutes_ago)
+
+    col_title, col_pipe, col_data, col_refresh = st.columns([4, 2, 2, 1])
     with col_title:
         st.title("Intelligence Terminal")
         st.caption("Real-time market intelligence · Regime detection · Risk scoring")
-    with col_status:
-        st.write("")
-        st.write("")
+    with col_pipe:
+        st.caption("PIPELINE")
+        st.markdown(status_pill(fresh_text, fresh_kind), unsafe_allow_html=True)
+    with col_data:
+        st.caption("REGIME DATA")
         if source == "supabase":
-            st.markdown(status_pill("● LIVE", "live"), unsafe_allow_html=True)
+            st.markdown(status_pill("● SUPABASE", "live"), unsafe_allow_html=True)
         elif source == "live_fred":
             st.markdown(status_pill("● LIVE FRED", "stale"), unsafe_allow_html=True)
         else:
             st.markdown(status_pill("○ NO DATA", "error"), unsafe_allow_html=True)
     with col_refresh:
         st.write("")
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", use_container_width=True,
+                     help="Clears Streamlit cache and re-reads from Supabase (does NOT trigger pipeline)"):
             st.cache_data.clear()
             st.rerun()
+
+    # If data is stale (>2 hours), surface a prominent CTA to trigger pipeline
+    if minutes_ago is not None and minutes_ago > 120:
+        st.warning(
+            f"⏰ **Data is {int(minutes_ago / 60)}h {int(minutes_ago % 60)}m old.** "
+            f"News pipeline runs on a cron (US market hours every 30 min, "
+            f"off-hours every ~6h). Trigger a fresh run now:",
+            icon="⏰",
+        )
+        cta1, cta2 = st.columns([1, 5])
+        with cta1:
+            st.link_button(
+                "🚀 Run pipeline now",
+                "https://github.com/git0ST/automation/actions/workflows/digest.yml",
+                use_container_width=True,
+                type="primary",
+            )
+        with cta2:
+            st.caption(
+                "**On the Actions page → click 'Run workflow' → wait 3-5 min → click Refresh here.** "
+                "Free GitHub plan gives unlimited cron runs but they can be delayed by ~5-15 min during high load."
+            )
 
     # ── Setup warning if migrations missing ───────────────────────────────────
     if missing_tables:
