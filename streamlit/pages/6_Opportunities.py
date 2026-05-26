@@ -23,12 +23,37 @@ import streamlit as st
 st.set_page_config(page_title="Opportunities · INTL", page_icon="🎯", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme         import apply_theme, COLORS, status_pill
-from _stock_analysis import (technical_signal, sentiment_signal, analyst_signal,
-                              vol_signal, composite_prediction)
-from _quant_score   import compute_quant_score
-from _components    import TICKER_META
+from _theme              import apply_theme, COLORS, status_pill
+from _stock_analysis     import (technical_signal, sentiment_signal, analyst_signal,
+                                  sector_signal, vol_signal, composite_prediction)
+from _advanced_technicals import compute_all_technicals
+from _quant_score        import compute_quant_score
+from _components         import TICKER_META
 apply_theme()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _sector_returns_map() -> dict:
+    """Pull 5-day sector ETF returns for sector-confirmation signal."""
+    try:
+        import yfinance as yf
+        ETF_MAP = {"Tech": "XLK", "Semis": "XLK", "Fin": "XLF", "Bank": "XLF",
+                   "Energy": "XLE", "Health": "XLV", "Pharma": "XLV",
+                   "Auto": "XLY", "Retail": "XLP", "Restaurant": "XLY",
+                   "Conglomerate": "XLI", "Payments": "XLF", "Apparel": "XLY"}
+        returns = {}
+        for sector, etf in ETF_MAP.items():
+            try:
+                hist = yf.Ticker(etf).history(period="10d", auto_adjust=True)
+                if len(hist) >= 5:
+                    ret = (float(hist["Close"].iloc[-1]) /
+                           float(hist["Close"].iloc[-5]) - 1) * 100
+                    returns[sector] = ret
+            except Exception:
+                continue
+        return returns
+    except Exception:
+        return {}
 
 
 # Default scan universe — diversified across mega cap + sectors
@@ -102,13 +127,23 @@ def scan_universe(tickers: tuple, period: str = "1y") -> list[dict]:
             fin = basic_financials_sync(ticker) if finnhub_ready else {}
             recs = recommendations_sync(ticker) if finnhub_ready else []
 
-            # Build signal components
-            tech_sig = technical_signal(price, sma_20, sma_50, sma_200, rsi_14)
-            sent_sig = sentiment_signal({})  # per-ticker sentiment skipped for speed
-            anal_sig = analyst_signal(recs)
-            vol_sig_data = vol_signal({})    # GARCH skipped for scan speed
+            # Build enriched technical signal (uses MACD + BB + ADX + VWAP)
+            highs   = hist["High"].values
+            lows    = hist["Low"].values
+            volumes = hist["Volume"].values
+            advanced = compute_all_technicals(highs, lows, arr, volumes)
 
-            prediction = composite_prediction(tech_sig, sent_sig, anal_sig, vol_sig_data)
+            tech_sig = technical_signal(price, sma_20, sma_50, sma_200, rsi_14,
+                                         advanced=advanced)
+            sent_sig = sentiment_signal({})
+            anal_sig = analyst_signal(recs)
+            # Sector confirmation signal
+            meta_sector = TICKER_META.get(ticker, {}).get("sector", "")
+            sect_sig = sector_signal(meta_sector, _sector_returns_map())
+            vol_sig_data = vol_signal({})
+
+            prediction = composite_prediction(tech_sig, sent_sig, anal_sig,
+                                              vol_sig_data, sector=sect_sig)
 
             # Quant score
             target_upside = None

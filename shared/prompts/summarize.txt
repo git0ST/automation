@@ -1,4 +1,0 @@
-Summarize the following text in $length. Focus on the key ideas relevant to $topic.
-
-Text:
-$text
