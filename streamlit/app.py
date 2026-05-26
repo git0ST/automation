@@ -178,7 +178,7 @@ def _render_alert_banner():
 
 def _render_todays_setups():
     """Top 5 highest-conviction setups from the latest pipeline snapshot,
-    each with concrete entry/stop/target/position size."""
+    each with concrete entry/stop/target/position size + freshness watcher."""
     client = supabase_client()
     if not client:
         return
@@ -196,10 +196,45 @@ def _render_todays_setups():
     if not rows:
         return
 
-    st.markdown("#### 🎯 Today's Top Setups")
-    st.caption("Highest-conviction trades from the latest auto-scan. Click any row "
-               "for the full analysis. Entry/stop/target use 2x ATR — adjust if "
-               "volatility regime changes.")
+    # Freshness check — warn if scan is >30 min old (signals may have shifted)
+    from datetime import datetime, timezone
+    scanned_at_str = rows[0].get("scanned_at")
+    setup_age_min = None
+    if scanned_at_str:
+        try:
+            ts = datetime.fromisoformat(scanned_at_str.replace("Z", "+00:00"))
+            setup_age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60
+        except Exception:
+            pass
+
+    col_h, col_age = st.columns([3, 2])
+    with col_h:
+        st.markdown("#### 🎯 Today's Top Setups")
+    with col_age:
+        if setup_age_min is not None:
+            if setup_age_min < 30:
+                pill_color, pill_label = "#00d68f", f"● Fresh · {int(setup_age_min)} min ago"
+            elif setup_age_min < 90:
+                pill_color, pill_label = "#ffaa00", f"● Aging · {int(setup_age_min)} min ago"
+            else:
+                pill_color, pill_label = "#ff5773", f"⚠ Stale · {int(setup_age_min/60)}h old"
+            st.markdown(
+                f'<div style="text-align:right;margin-top:14px">'
+                f'<span style="color:{pill_color};font-size:11px;font-weight:600;'
+                f'background:{pill_color}1f;padding:4px 10px;border-radius:10px">{pill_label}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    if setup_age_min is not None and setup_age_min > 90:
+        st.info(
+            "⚠ Setups are over 90 minutes old. Market conditions may have shifted. "
+            "Re-check before placing trades — confidence values are based on stale signals.",
+            icon="⚠️",
+        )
+
+    st.caption("Auto-scanned every 30 min by the pipeline cron. "
+               "Entry/stop/target use 2× ATR. Click **Open** for full analysis.")
 
     # Portfolio value input (session-persisted)
     if "portfolio_value" not in st.session_state:
@@ -451,18 +486,22 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
             </div>""", unsafe_allow_html=True)
 
         st.divider()
-        st.markdown("**Navigation**")
-        st.page_link("app.py",                       label="🏠 Overview")
-        st.page_link("pages/A_Global_Markets.py",    label="🌍 Global Markets")
-        st.page_link("pages/1_Markets.py",           label="📈 US Markets")
-        st.page_link("pages/6_Opportunities.py",     label="🎯 Opportunities")
-        st.page_link("pages/9_Strategies.py",        label="🎲 Strategies")
-        st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Detail")
-        st.page_link("pages/8_Options_Flow.py",      label="⚡ Options Flow")
-        st.page_link("pages/2_Risk.py",              label="📊 Risk & VaR")
-        st.page_link("pages/3_Research.py",          label="🔬 AI Research")
-        st.page_link("pages/4_Portfolio.py",         label="💼 Portfolio")
-        st.page_link("pages/7_Track_Record.py",      label="📈 Track Record")
+        # Primary nav — the 5 things a trader does daily
+        st.markdown("**Daily flow**")
+        st.page_link("app.py",                       label="🏠 Home")
+        st.page_link("pages/6_Opportunities.py",     label="🎯 Today's Setups")
+        st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Analysis")
+        st.page_link("pages/4_Portfolio.py",         label="💼 My Portfolio")
+        st.page_link("pages/A_Global_Markets.py",    label="🌍 Markets")
+
+        # Secondary — opens on demand
+        with st.expander("Deeper tools"):
+            st.page_link("pages/9_Strategies.py",     label="🎲 Strategy Playbooks")
+            st.page_link("pages/8_Options_Flow.py",   label="⚡ Options Flow")
+            st.page_link("pages/2_Risk.py",           label="📊 Risk & VaR")
+            st.page_link("pages/3_Research.py",       label="🤖 Ask Anything")
+            st.page_link("pages/1_Markets.py",        label="📈 US Sector Deep-Dive")
+            st.page_link("pages/7_Track_Record.py",   label="📈 Model Track Record")
         st.divider()
 
         # Pipeline trigger CTA
@@ -494,223 +533,100 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
 # ════════════════════════════════════════════════════════════════════════════
 
 def main():
-    # Load all data with graceful fallbacks
     regime, risk, missing_tables, source = load_regime_risk()
     render_sidebar(regime, risk, source)
 
-    # ── Header bar with multiple freshness indicators ────────────────────────
+    # ── Active alerts surface first (most urgent) ───────────────────────────
+    _render_alert_banner()
+
+    # ── Title + compact pulse pills (no big KPI cards) ──────────────────────
     fresh = load_data_freshness()
     minutes_ago = fresh.get("minutes_since_latest")
     fresh_text, fresh_kind = _format_freshness(minutes_ago)
 
-    col_title, col_pipe, col_data, col_refresh = st.columns([4, 2, 2, 1])
+    col_title, col_pulse, col_refresh = st.columns([5, 4, 1])
     with col_title:
-        st.title("Intelligence Terminal")
-        st.caption("Real-time market intelligence · Regime detection · Risk scoring")
-    with col_pipe:
-        st.caption("PIPELINE")
-        st.markdown(status_pill(fresh_text, fresh_kind), unsafe_allow_html=True)
-    with col_data:
-        st.caption("REGIME DATA")
-        if source == "supabase":
-            st.markdown(status_pill("● SUPABASE", "live"), unsafe_allow_html=True)
-        elif source == "live_fred":
-            st.markdown(status_pill("● LIVE FRED", "stale"), unsafe_allow_html=True)
-        else:
-            st.markdown(status_pill("○ NO DATA", "error"), unsafe_allow_html=True)
+        st.markdown("### Home")
+        st.caption("Trade ideas · market pulse · alerts")
+    with col_pulse:
+        # 3 compact pills: regime, SRS, freshness — densely packed
+        r_label = regime.get("label", "—") if regime else "—"
+        r_conf = regime.get("confidence_pct", 0) if regime else 0
+        r_color = REGIME_COLORS.get(regime.get("regime", ""), "#888") if regime else "#888"
+        srs = risk.get("srs", 0) if risk else 0
+        srs_level = risk.get("level", "—") if risk else "—"
+        srs_color = "#00d68f" if srs < 26 else "#ffaa00" if srs < 51 else "#ff8800" if srs < 76 else "#ff5773"
+        st.markdown(
+            f'<div style="display:flex;gap:14px;align-items:center;margin-top:6px;'
+            f'font-family:IBM Plex Mono,monospace;font-size:13px">'
+            f'<span><b style="color:#8b93a7;font-size:10px">REGIME </b>'
+            f'<b style="color:{r_color}">{r_label}</b> '
+            f'<span style="color:#8b93a7">{r_conf:.0f}%</span></span>'
+            f'<span><b style="color:#8b93a7;font-size:10px">SRS </b>'
+            f'<b style="color:{srs_color}">{srs:.0f}</b>'
+            f'<span style="color:#8b93a7">/100 {srs_level}</span></span>'
+            f'<span><b style="color:#8b93a7;font-size:10px">DATA </b>'
+            f'<b style="color:{"#00d68f" if fresh_kind == "live" else "#ffaa00"}">'
+            f'{fresh_text.lstrip("● ⚠ ○ ")}</b></span>'
+            f'</div>', unsafe_allow_html=True)
     with col_refresh:
         st.write("")
-        if st.button("🔄 Refresh", use_container_width=True,
-                     help="Clears Streamlit cache and re-reads from Supabase (does NOT trigger pipeline)"):
+        if st.button("🔄", use_container_width=True, help="Refresh data"):
             st.cache_data.clear()
             st.rerun()
 
-    # ── Active alert banners (acknowledged-aware) ───────────────────────────
-    _render_alert_banner()
-
-    # If data is stale (>2 hours), surface a prominent CTA to trigger pipeline
-    if minutes_ago is not None and minutes_ago > 120:
-        st.warning(
-            f"⏰ **Data is {int(minutes_ago / 60)}h {int(minutes_ago % 60)}m old.** "
-            f"News pipeline runs on a cron (US market hours every 30 min, "
-            f"off-hours every ~6h). Trigger a fresh run now:",
-            icon="⏰",
-        )
-        cta1, cta2 = st.columns([1, 5])
-        with cta1:
-            st.link_button(
-                "🚀 Run pipeline now",
-                "https://github.com/git0ST/automation/actions/workflows/digest.yml",
-                use_container_width=True,
-                type="primary",
-            )
-        with cta2:
-            st.caption(
-                "**On the Actions page → click 'Run workflow' → wait 3-5 min → click Refresh here.** "
-                "Free GitHub plan gives unlimited cron runs but they can be delayed by ~5-15 min during high load."
-            )
-
-    # ── Setup warning if migrations missing ───────────────────────────────────
+    # Soft warning only if blocking — migrations missing or data very stale
     if missing_tables:
         st.warning(
-            f"⚠ **Database setup needed:** Tables `{', '.join(missing_tables)}` don't exist. "
-            "Run [migration 003](https://github.com/git0ST/automation/blob/main/supabase/migrations/003_intelligence_tables.sql) "
-            "in the [Supabase SQL Editor](https://supabase.com/dashboard/project/jptwbvigtgiffjqnctic/sql/new).",
+            f"⚠ Run [migration 003]"
+            f"(https://github.com/git0ST/automation/blob/main/supabase/migrations/003_intelligence_tables.sql) "
+            f"in Supabase → tables `{', '.join(missing_tables)}` missing.",
             icon="⚠️",
         )
-
-    st.divider()
-
-    # KPI strip — tooltips explain each metric on hover
-    articles, art_status = load_articles(limit=200)
-    signals,  sig_status = load_signals(limit=50)
-    market,   mkt_status = load_market_snapshots(limit=60)
-    sentiment            = load_weighted_sentiment(limit=200)
-
-    bull_pct = sentiment.get("bullish_pct", 0)
-    bear_pct = sentiment.get("bearish_pct", 0)
-    srs      = risk.get("srs", 0) if risk else 0
-    level    = risk.get("level", "—") if risk else "—"
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric(
-            label="Market Regime",
-            value=(regime.get("label") if regime else "—"),
-            delta=f"{regime.get('confidence_pct', 0):.0f}% confidence" if regime else "no data",
-            delta_color="off",
-            help=MARKET_REGIME,
-        )
-    with col2:
-        st.metric(
-            label="Systemic Risk",
-            value=f"{srs:.0f} / 100",
-            delta=level,
-            delta_color="inverse" if srs >= 51 else "normal",
-            help=SYSTEMIC_RISK,
-        )
-    with col3:
-        st.metric(
-            label="News Sentiment",
-            value=f"↑ {bull_pct}% / ↓ {bear_pct}%",
-            delta=f"{sentiment.get('n_items', 0)} articles · weighted",
-            delta_color="off",
-            help=NEWS_SENTIMENT,
-        )
-    with col4:
-        st.metric(
-            label="Alpha Signals",
-            value=len(signals),
-            delta="insider · options · congress",
-            delta_color="off",
-            help=ALPHA_SIGNALS,
-        )
-    with col5:
-        st.metric(
-            label="Data Freshness",
-            value=fresh_text.lstrip("● ⚠ ○ "),
-            delta=f"{len(market)} tickers cached",
-            delta_color="off",
-            help=DATA_FRESHNESS,
+    elif minutes_ago is not None and minutes_ago > 120:
+        st.info(
+            f"⏰ Data {int(minutes_ago / 60)}h old. "
+            f"[Trigger pipeline](https://github.com/git0ST/automation/actions/workflows/digest.yml) "
+            f"for fresh news + signals.",
+            icon="⏰",
         )
 
     st.divider()
 
-    # ── Today's Trade Setups — outcome-focused: what to buy/sell right now ──
+    # ── PRIMARY: Today's Top Setups (the one thing that matters) ────────────
     _render_todays_setups()
 
-    # ── What changed since yesterday ────────────────────────────────────────
-    _render_diff_section()
-
-    # ── Live Markets — professional ticker cards with logos ─────────────────
-    st.markdown("#### 📈 Live Markets")
-    WATCHLIST = (
-        "^GSPC", "^IXIC", "^DJI",  "^VIX",
-        "NVDA",  "AAPL",  "MSFT",  "GOOGL",
-        "META",  "AMZN",  "TSLA",  "AVGO",
-        "BTC-USD","ETH-USD","SPY","QQQ",
-    )
-    with st.spinner(f"Loading {len(WATCHLIST)} tickers…"):
-        mkt = load_market_prices(WATCHLIST)
-
-    if mkt:
-        render_ticker_grid(mkt, cols=4)
-    else:
-        st.warning("Market data unavailable — yfinance may be rate-limited. Try Refresh.")
-
     st.divider()
 
-    # ── Regime card — professional, comprehensive ────────────────────────────
-    if regime:
-        st.markdown("#### 🌐 Market Regime")
-        st.markdown(regime_card(regime), unsafe_allow_html=True)
+    # ── SECONDARY: Compact 2-column — Sector heatmap + recent alpha signals ─
+    col_sectors, col_signals = st.columns([3, 2])
 
-    st.divider()
+    with col_sectors:
+        st.markdown("##### Sector Rotation · 5d")
+        _render_sector_rotation()
 
-    # ── Sector Rotation heatmap ──────────────────────────────────────────────
-    st.markdown("#### 🔥 Sector Rotation · 5-day momentum")
-    st.caption("Where capital is flowing. Each tile sized by sector market cap, "
-               "colored by 5-day return. Green = inflows, red = outflows.")
-    _render_sector_rotation()
-
-    st.divider()
-
-    # ── News feed + Signals side panel ───────────────────────────────────────
-    if articles:
-        col_news, col_side = st.columns([3, 2])
-
-        with col_news:
-            st.markdown(f"#### 📰 Top Intelligence Feed · {len(articles)} items")
-            for it in articles[:20]:
-                st.markdown(news_item_card(it), unsafe_allow_html=True)
-
-        with col_side:
-            # Signals panel
-            if signals:
-                st.markdown(f"#### ⚡ Alpha Signals · {len(signals)}")
-                label_map = {"edgar": "SEC", "options": "OPTS", "congress": "CONG",
-                             "finra": "SHORT", "credit": "CREDIT"}
-                for sig in signals[:15]:
-                    s_sent  = sig.get("sentiment_label") or "neutral"
-                    s_icon  = "▲" if s_sent == "bullish" else "▼" if s_sent == "bearish" else "—"
-                    s_color = "#00d68f" if s_sent == "bullish" else "#ff5773" if s_sent == "bearish" else "#8b93a7"
-                    src_html = source_badge(sig.get("source") or "?")
-                    title    = (sig.get("title") or "—")[:60]
-                    st.markdown(
-                        f'<div style="background:#131825;border:1px solid #1f2937;'
-                        f'border-radius:5px;padding:8px 12px;margin-bottom:6px">'
-                        f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
-                        f'<span style="color:{s_color};font-weight:700">{s_icon}</span>'
-                        f'{src_html}'
-                        f'</div>'
-                        f'<div style="color:#c8cce0;font-size:12px;line-height:1.4">{title}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-            elif sig_status == "missing":
-                st.markdown("#### ⚡ Alpha Signals")
-                st.caption("Signals table missing — run migration 002")
-            else:
-                st.markdown("#### ⚡ Alpha Signals · Pending")
-                st.info(
-                    "**No signals yet.** Trigger the pipeline to populate "
-                    "insider/options/congress data.",
-                    icon="📭",
+    with col_signals:
+        signals, sig_status = load_signals(limit=12)
+        st.markdown("##### Alpha Signals")
+        if signals:
+            for sig in signals[:8]:
+                s_sent  = sig.get("sentiment_label") or "neutral"
+                s_icon  = "▲" if s_sent == "bullish" else "▼" if s_sent == "bearish" else "—"
+                s_color = "#00d68f" if s_sent == "bullish" else "#ff5773" if s_sent == "bearish" else "#8b93a7"
+                src     = (sig.get("source") or "?").upper()[:5]
+                title   = (sig.get("title") or "—")[:48]
+                st.markdown(
+                    f'<div style="background:#131825;border:1px solid #1f2937;'
+                    f'border-radius:4px;padding:6px 10px;margin-bottom:4px;'
+                    f'display:flex;gap:8px;align-items:center;font-size:11px">'
+                    f'<span style="color:{s_color};font-weight:700">{s_icon}</span>'
+                    f'<code style="font-size:10px">{src}</code>'
+                    f'<span style="color:#c8cce0">{title}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
                 )
-                st.link_button(
-                    "🚀 Run pipeline",
-                    "https://github.com/git0ST/automation/actions/workflows/digest.yml",
-                    use_container_width=True,
-                    type="primary",
-                )
-    else:
-        # Empty state — clear CTA
-        st.info(
-            "📭 **No news data yet.** This is normal on first deploy.\n\n"
-            "**Next step:** trigger the pipeline cron at "
-            "https://github.com/git0ST/automation/actions/workflows/digest.yml → "
-            "click **Run workflow** → wait ~3-5 min → refresh this page."
-        )
+        else:
+            st.caption("No signals yet — run pipeline to populate")
 
 
 main()
