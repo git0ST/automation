@@ -33,114 +33,8 @@ REGIME_COLORS = {
 
 
 def apply_theme() -> None:
-    """Inject the INTL design system CSS + sidebar-toggle visibility JS. Idempotent."""
+    """Inject the INTL design system CSS. Idempotent."""
     st.markdown(_CSS, unsafe_allow_html=True)
-    st.markdown(_SIDEBAR_TOGGLE_JS, unsafe_allow_html=True)
-
-
-# JS that runs every 500ms to force the sidebar toggle visible, regardless of
-# Streamlit version. Survives re-renders that wipe inline styles.
-_SIDEBAR_TOGGLE_JS = """
-<script>
-(function() {
-  // Native Streamlit sidebar-toggle elements — multiple selectors for cross-version coverage
-  const SELECTORS = [
-    '[data-testid="stSidebarCollapsedControl"]',
-    '[data-testid="collapsedControl"]',
-    '[data-testid="stExpandSidebarButton"]',
-    '[data-testid="stSidebarCollapseButton"]',
-    'header button[kind="header"]',
-    'header button[kind="headerNoPadding"]',
-  ];
-
-  // Style applied to the native toggle when it's the collapsed/expand button
-  // position:fixed pins it to viewport so browser chrome/tabs can never cover it
-  const FIXED_STYLE = `
-    position: fixed !important;
-    top: 14px !important;
-    left: 14px !important;
-    background: #4c8bf5 !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 8px !important;
-    width: 42px !important;
-    height: 42px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    box-shadow: 0 0 0 2px #4c8bf5, 0 4px 14px rgba(76, 139, 245, 0.5) !important;
-    cursor: pointer !important;
-    z-index: 999999 !important;
-  `;
-
-  // For the close button inside an OPEN sidebar (lives inside the sidebar DOM,
-  // so should stay in place — just style it cobalt)
-  const INSIDE_STYLE = `
-    background: #4c8bf5 !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 6px !important;
-    width: 36px !important;
-    height: 36px !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    cursor: pointer !important;
-  `;
-
-  function paintIcon(el) {
-    el.querySelectorAll('svg').forEach(svg => {
-      svg.style.color = '#ffffff';
-      svg.style.fill = '#ffffff';
-      svg.style.opacity = '1';
-      svg.style.width = '20px';
-      svg.style.height = '20px';
-    });
-    el.querySelectorAll('svg path, svg g').forEach(p => {
-      p.style.fill = '#ffffff';
-    });
-    el.querySelectorAll('[class*="material-symbol"], [data-testid*="Icon"]').forEach(sym => {
-      sym.style.color = '#ffffff';
-      sym.style.fontSize = '22px';
-      sym.style.opacity = '1';
-    });
-    // Last-resort fallback character
-    if (!el.querySelector('svg') && !el.querySelector('[class*="material"]') && !el.textContent.trim()) {
-      el.innerHTML = '<span style="color:white;font-size:20px;font-weight:700;line-height:1">☰</span>';
-    }
-  }
-
-  function paintToggle(el) {
-    if (!el) return;
-    // Detect whether this is the collapsed button (lives in <header>) or the
-    // close button (lives inside [data-testid="stSidebar"])
-    const isInsideSidebar = el.closest('[data-testid="stSidebar"]') !== null;
-    el.style.cssText = isInsideSidebar ? INSIDE_STYLE : FIXED_STYLE;
-    paintIcon(el);
-  }
-
-  function ensureVisible() {
-    for (const sel of SELECTORS) {
-      document.querySelectorAll(sel).forEach(paintToggle);
-    }
-  }
-
-  ensureVisible();
-  setTimeout(ensureVisible, 300);
-  setTimeout(ensureVisible, 1000);
-  setTimeout(ensureVisible, 3000);
-
-  const observer = new MutationObserver(() => ensureVisible());
-  if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-  setInterval(ensureVisible, 2000);
-})();
-</script>
-"""
 
 
 _CSS = """
@@ -434,107 +328,42 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 
 .js-plotly-plot, .plotly { background: transparent !important; }
 
-/* Hide Streamlit chrome — keep header + sidebar toggle visible */
+/* Hide Streamlit chrome */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-
-/* Show the header (contains the sidebar toggle) but hide its content widgets */
-header[data-testid="stHeader"] {
-  visibility: visible !important;
-  background: transparent !important;
-  height: 3rem !important;
-}
 [data-testid="stToolbar"]      { display: none !important; }
 [data-testid="stDecoration"]   { display: none !important; }
 [data-testid="stStatusWidget"] { display: none !important; }
 
-/* ═══════════ SIDEBAR TOGGLE — every known selector across Streamlit versions ═══════════ */
+/* ═══════════ SIDEBAR — always-open navigation rail ═══════════ */
+/* Hiding the collapse/expand toggle entirely is more reliable than
+   trying to keep it visible across Streamlit Cloud version changes.
+   Navigation is guaranteed because the sidebar is always rendered. */
+
+/* Hide every variant of Streamlit's sidebar collapse/expand button */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"],
 [data-testid="stExpandSidebarButton"],
 [data-testid="stSidebarCollapseButton"],
-header button[kind="header"],
-header button[kind="headerNoPadding"] {
+[data-testid="stSidebar"] button[kind="header"],
+[data-testid="stSidebar"] button[kind="headerNoPadding"],
+[data-testid="stSidebarHeader"] button {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Force sidebar to always be expanded with a fixed minimum width */
+[data-testid="stSidebar"] {
+  display: block !important;
   visibility: visible !important;
-  opacity: 1 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  background: #4c8bf5 !important;
-  color: #ffffff !important;
-  border: none !important;
-  border-radius: 6px !important;
-  width: 40px !important;
-  height: 40px !important;
-  margin: 6px !important;
-  cursor: pointer !important;
-  z-index: 9999 !important;
-  position: relative !important;
-  box-shadow: 0 2px 8px rgba(76, 139, 245, 0.3) !important;
+  transform: none !important;
+  min-width: 260px !important;
+  max-width: 320px !important;
 }
 
-[data-testid="stSidebarCollapsedControl"]:hover,
-[data-testid="collapsedControl"]:hover,
-[data-testid="stExpandSidebarButton"]:hover,
-header button[kind="header"]:hover {
-  background: #3a78e0 !important;
-  box-shadow: 0 4px 12px rgba(76, 139, 245, 0.5) !important;
-}
-
-/* Force the icon inside to be white + visible */
-[data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="collapsedControl"] svg,
-[data-testid="stExpandSidebarButton"] svg,
-[data-testid="stSidebarCollapseButton"] svg,
-header button[kind="header"] svg,
-header button[kind="headerNoPadding"] svg {
-  width: 20px !important;
-  height: 20px !important;
-  color: #ffffff !important;
-  fill: #ffffff !important;
-  opacity: 1 !important;
-  display: inline-block !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg path,
-[data-testid="collapsedControl"] svg path,
-[data-testid="stExpandSidebarButton"] svg path,
-[data-testid="stSidebarCollapseButton"] svg path,
-header button[kind="header"] svg path,
-header button[kind="headerNoPadding"] svg path {
-  fill: #ffffff !important;
-  stroke: #ffffff !important;
-}
-
-/* Material Symbols fallback for the icon */
-[data-testid="stSidebarCollapsedControl"] [class*="material-symbol"],
-[data-testid="collapsedControl"] [class*="material-symbol"],
-header button[kind="header"] [class*="material-symbol"],
-header button[kind="headerNoPadding"] [class*="material-symbol"] {
-  font-family: 'Material Symbols Rounded' !important;
-  font-size: 22px !important;
-  color: #ffffff !important;
-  font-feature-settings: 'liga' !important;
-}
-
-/* ::after fallback — always visible literal arrow if everything else fails */
-[data-testid="stSidebarCollapsedControl"]::after,
-[data-testid="collapsedControl"]::after {
-  content: "☰";
-  color: #ffffff;
-  font-size: 18px;
-  font-weight: 700;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-/* When the SVG renders, hide the fallback */
-[data-testid="stSidebarCollapsedControl"]:has(svg)::after,
-[data-testid="collapsedControl"]:has(svg)::after,
-[data-testid="stSidebarCollapsedControl"]:has([class*="material"])::after,
-[data-testid="collapsedControl"]:has([class*="material"])::after {
-  content: "" !important;
+[data-testid="stSidebarContent"] {
+  visibility: visible !important;
+  display: block !important;
 }
 </style>
 """

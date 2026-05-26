@@ -68,4 +68,9 @@ streamlit/.streamlit/secrets.toml
 .streamlit/secrets.toml
 
 # ── Claude Code local overrides ────────────────
-.claude/settings.local.json
+.claude/
+
+# ── Legacy / archived ──────────────────────────
+projects/_template/
+notebooks/
+scripts/setup.sh
