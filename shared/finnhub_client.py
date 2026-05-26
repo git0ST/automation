@@ -118,7 +118,7 @@ async def market_news(category: str = "general", limit: int = 20) -> list[dict]:
     return await loop.run_in_executor(None, market_news_sync, category, limit)
 
 
-def company_news_sync(symbol: str, lookback_days: int = 3, limit: int = 10) -> list[dict]:
+def company_news_sync(symbol: str, lookback_days: int = 7, limit: int = 15) -> list[dict]:
     """Recent company-specific news."""
     key = _api_key()
     if not key:
@@ -134,6 +134,75 @@ def company_news_sync(symbol: str, lookback_days: int = 3, limit: int = 10) -> l
             })
             if r.status_code == 200:
                 return r.json()[:limit]
+    except Exception:
+        pass
+    return []
+
+
+def company_profile_sync(symbol: str) -> dict | None:
+    """Company profile — name, exchange, industry, market cap, web, IPO date."""
+    key = _api_key()
+    if not key:
+        return None
+    _rate_limit_wait()
+    try:
+        with httpx.Client(timeout=6) as client:
+            r = client.get(f"{BASE}/stock/profile2", params={"symbol": symbol, "token": key})
+            if r.status_code == 200:
+                data = r.json()
+                return data if data else None
+    except Exception:
+        pass
+    return None
+
+
+def basic_financials_sync(symbol: str) -> dict | None:
+    """Key ratios — P/E, P/B, EPS growth, ROE, debt/equity, dividend yield."""
+    key = _api_key()
+    if not key:
+        return None
+    _rate_limit_wait()
+    try:
+        with httpx.Client(timeout=8) as client:
+            r = client.get(f"{BASE}/stock/metric",
+                           params={"symbol": symbol, "metric": "all", "token": key})
+            if r.status_code == 200:
+                data = r.json()
+                return data.get("metric", {}) if data else None
+    except Exception:
+        pass
+    return None
+
+
+def recommendations_sync(symbol: str) -> list[dict]:
+    """Analyst recommendation trends — buy/hold/sell counts per month."""
+    key = _api_key()
+    if not key:
+        return []
+    _rate_limit_wait()
+    try:
+        with httpx.Client(timeout=6) as client:
+            r = client.get(f"{BASE}/stock/recommendation",
+                           params={"symbol": symbol, "token": key})
+            if r.status_code == 200:
+                return r.json() or []
+    except Exception:
+        pass
+    return []
+
+
+def earnings_sync(symbol: str, limit: int = 4) -> list[dict]:
+    """Recent earnings — actual vs estimated EPS."""
+    key = _api_key()
+    if not key:
+        return []
+    _rate_limit_wait()
+    try:
+        with httpx.Client(timeout=6) as client:
+            r = client.get(f"{BASE}/stock/earnings",
+                           params={"symbol": symbol, "limit": limit, "token": key})
+            if r.status_code == 200:
+                return r.json() or []
     except Exception:
         pass
     return []
