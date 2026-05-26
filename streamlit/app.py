@@ -329,6 +329,7 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
         st.page_link("app.py",                       label="🏠 Overview")
         st.page_link("pages/1_Markets.py",           label="📈 Markets")
         st.page_link("pages/6_Opportunities.py",     label="🎯 Opportunities")
+        st.page_link("pages/9_Strategies.py",        label="🎲 Strategies")
         st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Detail")
         st.page_link("pages/8_Options_Flow.py",      label="⚡ Options Flow")
         st.page_link("pages/2_Risk.py",              label="📊 Risk & VaR")
