@@ -33,13 +33,12 @@ on:
         default: 'true'
         type: boolean
 
-permissions:
-  contents: read
-
 jobs:
   pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
 
     env:
       SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
@@ -52,12 +51,15 @@ jobs:
       PYTHONUNBUFFERED:     "1"
 
     steps:
-      # ── Bumped to v5 (Node.js 24 compatible) — fixes Node 20 deprecation warning ──
+      # ── Stable v4 — handles auth via auto-generated GITHUB_TOKEN ──
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+          persist-credentials: false
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
