@@ -394,3 +394,101 @@ def get_risk_history(limit: int = 30) -> list[dict]:
                 .execute()).data or []
     except Exception:
         return []
+
+
+# ── Intraday Bars ─────────────────────────────────────────────────────────────
+
+def save_intraday_bars(bars: list[dict]) -> int:
+    """Upsert 5-min OHLCV bars. Returns count written."""
+    client = get_client()
+    if not client or not bars:
+        return 0
+    written = 0
+    batch_size = 200
+    for i in range(0, len(bars), batch_size):
+        batch = bars[i:i + batch_size]
+        try:
+            client.table("intraday_bars").upsert(
+                batch, on_conflict="ticker,bar_time", ignore_duplicates=True
+            ).execute()
+            written += len(batch)
+        except Exception as e:
+            print(f"[supabase] intraday bars batch error: {e}")
+    return written
+
+
+def get_intraday_bars(ticker: str, limit: int = 78) -> list[dict]:
+    """Fetch intraday bars for a ticker (78 bars ≈ full 6.5h session at 5min)."""
+    client = get_client()
+    if not client:
+        return []
+    try:
+        return list(reversed(
+            (client.table("intraday_bars")
+             .select("ticker,bar_time,open,high,low,close,volume,vwap,vwap_dev,vol_ratio,rsi_14")
+             .eq("ticker", ticker)
+             .order("bar_time", desc=True)
+             .limit(limit)
+             .execute()).data or []
+        ))
+    except Exception:
+        return []
+
+
+# ── Trade Signals ─────────────────────────────────────────────────────────────
+
+def get_trade_signals(ticker: Optional[str] = None, status: str = "open",
+                      limit: int = 30) -> list[dict]:
+    """Fetch execution-grade trade signals."""
+    client = get_client()
+    if not client:
+        return []
+    try:
+        q = (client.table("trade_signals")
+             .select("*")
+             .eq("status", status)
+             .order("fired_at", desc=True)
+             .limit(limit))
+        if ticker:
+            q = q.eq("ticker", ticker)
+        return q.execute().data or []
+    except Exception:
+        return []
+
+
+def expire_stale_signals() -> int:
+    """Mark signals past their expires_at as expired. Returns count updated."""
+    client = get_client()
+    if not client:
+        return 0
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        resp = (client.table("trade_signals")
+                .update({"status": "expired"})
+                .eq("status", "open")
+                .lt("expires_at", now)
+                .execute())
+        return len(resp.data or [])
+    except Exception:
+        return 0
+
+
+# ── Earnings Events ───────────────────────────────────────────────────────────
+
+def get_upcoming_earnings(days_ahead: int = 7) -> list[dict]:
+    """Fetch tickers with earnings within days_ahead."""
+    client = get_client()
+    if not client:
+        return []
+    try:
+        from datetime import date, timedelta
+        today   = date.today().isoformat()
+        cutoff  = (date.today() + timedelta(days=days_ahead)).isoformat()
+        return (client.table("earnings_events")
+                .select("ticker,earnings_date,days_away,eps_estimate,rev_estimate")
+                .gte("earnings_date", today)
+                .lte("earnings_date", cutoff)
+                .order("earnings_date")
+                .execute()).data or []
+    except Exception:
+        return []

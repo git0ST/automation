@@ -397,6 +397,91 @@ async def run_pipeline(
         except Exception as e:
             print(f"  [10] Opportunity scan skipped: {e}")
 
+        # [11] Intraday bars — sub-daily resolution (market hours only)
+        intraday_items = []
+        try:
+            from sources.intraday import fetch_intraday
+            print(f"  [11] Fetching intraday bars (market hours only)…")
+            intraday_items = await fetch_intraday()
+            if intraday_items:
+                from db.supabase_sync import save_intraday_bars
+                bars_to_save = []
+                for it in intraday_items:
+                    id_data = it.get("intraday_data", {})
+                    bars_to_save.extend([
+                        {k: v for k, v in b.items() if k != "ticker" or True}
+                        for b in id_data.get("all_bars", [])
+                    ])
+                n_written = save_intraday_bars(bars_to_save)
+                print(f"    Intraday: {len(intraday_items)} tickers, {n_written} bars saved")
+            else:
+                print(f"    Intraday: outside market hours — skipped")
+        except Exception as e:
+            print(f"  [11] Intraday fetch skipped: {e}")
+
+        # [12] Earnings calendar — event risk awareness
+        try:
+            from sources.earnings_calendar import fetch_earnings_calendar
+            print(f"  [12] Refreshing earnings calendar…")
+            await fetch_earnings_calendar()
+        except Exception as e:
+            print(f"  [12] Earnings calendar skipped: {e}")
+
+        # [13] Signal engine — execution-grade trade signals
+        try:
+            from agents.signal_engine import generate_trade_signals
+            current_regime = (intelligence or {}).get("regime", {}).get("regime")
+            print(f"  [13] Generating trade signals…")
+            pipeline_payload = {
+                "items":   scored,
+                "signals": [{"source": s.get("source"), "title": s.get("title"),
+                             "sentiment_label": s.get("sentiment_label"),
+                             "sentiment_score": s.get("sentiment_score"),
+                             "entities": s.get("entities", []),
+                             "option_data": s.get("option_data"),
+                             "payload": s.get("payload")}
+                            for s in signal_data],
+                "market":  market_flat,
+                "macro":   [it["macro_data"] for it in macro_data if it.get("macro_data")],
+            }
+            trade_signals = await generate_trade_signals(
+                pipeline_payload,
+                intraday_items=intraday_items,
+                regime=current_regime,
+                max_signals=10,
+            )
+            store_stats["trade_signals"] = len(trade_signals)
+            print(f"    Signals: {len(trade_signals)} fired")
+        except Exception as e:
+            print(f"  [13] Signal engine skipped: {e}")
+            trade_signals = []
+
+        # [14] Data lake — compressed snapshot for ML / backtesting
+        try:
+            from shared.data_lake import write_snapshot
+            print(f"  [14] Writing data lake snapshot…")
+            snap_payload = {
+                "items":      scored[:100],
+                "market":     market_flat,
+                "macro":      [it["macro_data"] for it in macro_data if it.get("macro_data")],
+                "fear_greed": [it["fear_greed"] for it in fg_data if it.get("fear_greed")],
+                "signals":    [{"source": s.get("source"), "title": s.get("title"),
+                                "sentiment_label": s.get("sentiment_label"),
+                                "sentiment_score": s.get("sentiment_score"),
+                                "entities": s.get("entities", [])}
+                               for s in signal_data],
+                "sentiment":  sentiment,
+                "regime":     intelligence.get("regime") if intelligence else {},
+                "risk":       intelligence.get("risk") if intelligence else {},
+                "alerts":     alerts,
+                "run_meta":   {"timestamp": datetime.now(timezone.utc).isoformat(),
+                               "sources": sources, "total_items": len(scored)},
+            }
+            snap_result = write_snapshot(snap_payload)
+            store_stats["data_lake"] = snap_result
+        except Exception as e:
+            print(f"  [14] Data lake snapshot skipped: {e}")
+
     return {
         "items":        scored,
         "market_data":  market_data,

@@ -18,6 +18,8 @@ from .credit_spreads import fetch_credit_spreads
 from .forex import fetch_forex
 from .commodities import fetch_commodities
 from .finnhub_news import fetch_finnhub_news
+from .intraday import fetch_intraday
+from .earnings_calendar import fetch_earnings_calendar
 
 SOURCE_FETCHERS = {
     "hackernews":    fetch_hackernews,
@@ -40,6 +42,8 @@ SOURCE_FETCHERS = {
     "forex":         fetch_forex,
     "commodity":     fetch_commodities,
     "finnhub":       fetch_finnhub_news,
+    "intraday":      fetch_intraday,
+    "earnings":      fetch_earnings_calendar,
 }
 
 # Finance-focused sources only — Bloomberg terminal scope

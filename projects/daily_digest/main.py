@@ -1,25 +1,34 @@
 """
-Intelligence Terminal v2.1 — FastAPI web server.
+Intelligence Terminal v2.4 — FastAPI web server.
 
-17-source pipeline: HN · arXiv · Reddit · GitHub · RSS · StackOverflow ·
+19-source pipeline: HN · arXiv · Reddit · GitHub · RSS · StackOverflow ·
   FRED · Credit Spreads · Fear&Greed · Finance · EDGAR · GDELT · StockTwits ·
-  Options · CoinGecko · Congress · FINRA
+  Options · CoinGecko · Congress · FINRA · Intraday (5min) · Earnings Calendar
 
 Endpoints:
-  GET  /                    — Terminal UI (Bloomberg/Aladdin-style dark terminal)
-  GET  /api/pipeline        — Full pipeline (cached 5 min, stale-while-revalidate)
-  GET  /api/market          — Market data only (cached 2 min)
-  GET  /api/market/history  — Price history for sparklines (Supabase)
-  GET  /api/macro           — FRED + credit spread macro indicators
-  GET  /api/fear_greed      — Fear & Greed indices
-  GET  /api/signals         — Trade signals: insider (edgar), options flow, congress
-  GET  /api/regime          — BlackRock Aladdin-style regime classification
-  GET  /api/risk            — Systemic Risk Score (0-100 composite)
-  GET  /api/alerts          — Recent alerts
-  GET  /api/sentiment       — Current sentiment summary
-  GET  /api/stream          — SSE stream: pushed when pipeline refreshes
-  GET  /api/cache           — Cache status
-  POST /api/summarize       — On-demand AI summary (Ollama)
+  GET  /                            — Terminal UI (Bloomberg/Aladdin-style dark terminal)
+  GET  /api/pipeline                — Full pipeline (cached 5 min, stale-while-revalidate)
+  GET  /api/market                  — Market data only (cached 2 min)
+  GET  /api/market/history          — Price history for sparklines (Supabase)
+  GET  /api/macro                   — FRED + credit spread macro indicators
+  GET  /api/fear_greed              — Fear & Greed indices
+  GET  /api/signals                 — Trade signals: insider (edgar), options flow, congress
+  GET  /api/signals/trade           — Execution-grade signals: entry/stop/target/Kelly size
+  GET  /api/regime                  — BlackRock Aladdin-style regime classification
+  GET  /api/risk                    — Systemic Risk Score (0-100 composite)
+  GET  /api/alerts                  — Recent alerts
+  GET  /api/sentiment               — Current sentiment summary
+  GET  /api/stream                  — SSE stream: pushed when pipeline refreshes
+  GET  /api/cache                   — Cache status
+  GET  /api/intraday/{ticker}       — 5-min OHLCV bars with VWAP + vol ratio
+  GET  /api/earnings                — Upcoming earnings events (event-risk calendar)
+  GET  /api/snapshot/history        — Pipeline snapshot metadata index (for ML)
+  GET  /api/snapshot/{id}/features  — ML feature vector from a stored snapshot
+  POST /api/query                   — Natural language query routing (manager agent)
+  POST /api/summarize               — On-demand AI summary (Ollama)
+  GET  /api/math/var/{ticker}       — Value at Risk (95/99), CVaR, Sharpe, Beta
+  POST /api/math/portfolio          — Portfolio VaR, correlation matrix
+  GET  /api/math/technical/{ticker} — SMA, RSI, trend signal
 """
 
 import os, sys, time, asyncio, json
@@ -661,6 +670,140 @@ async def api_rate_limits():
         return JSONResponse(rate_limit_status())
     except Exception as e:
         return JSONResponse({"error": str(e)})
+
+
+# ── HFT Data Layer ────────────────────────────────────────────────────────────
+
+@app.get("/api/intraday/{ticker}")
+async def api_intraday(ticker: str, limit: int = Query(default=78)):
+    """
+    5-minute OHLCV bars for a ticker with VWAP, vol ratio, RSI.
+    Returns bars from Supabase (persisted), falls back to live fetch during market hours.
+    Market hours: 9:30am–4:00pm ET Mon–Fri.
+    """
+    ticker = ticker.upper()
+    try:
+        from db.supabase_sync import get_intraday_bars
+        rows = get_intraday_bars(ticker, limit=limit)
+        if rows:
+            return JSONResponse({"ticker": ticker, "bars": rows,
+                                 "count": len(rows), "source": "supabase"})
+    except Exception:
+        pass
+    # Live fallback
+    try:
+        from sources.intraday import fetch_intraday
+        items = await fetch_intraday(tickers=[ticker])
+        if items:
+            data = items[0]["intraday_data"]
+            return JSONResponse({"ticker": ticker, "bars": data["all_bars"],
+                                 "count": data["bar_count"],
+                                 "open_range": data["open_range"],
+                                 "vwap_signal": data["vwap_signal"],
+                                 "unusual_vol": data["unusual_vol"],
+                                 "source": "live"})
+    except Exception as e:
+        pass
+    return JSONResponse({"ticker": ticker, "bars": [], "count": 0,
+                         "note": "Outside market hours or no data"})
+
+
+@app.get("/api/signals/trade")
+async def api_trade_signals(
+    ticker: str    = Query(default=None),
+    status: str    = Query(default="open"),
+    limit:  int    = Query(default=20),
+    live:   bool   = Query(default=False),
+):
+    """
+    Execution-grade trade signals with entry/stop/target/Kelly sizing.
+    live=true: re-synthesize from current pipeline cache (slower, more current).
+    live=false: return persisted signals from Supabase.
+    """
+    if live:
+        try:
+            from agents.signal_engine import generate_trade_signals
+            cached     = _cache["pipeline"].get("data") or {}
+            regime     = (cached.get("regime") or {}).get("regime")
+            intra_items = None
+            try:
+                from sources.intraday import fetch_intraday
+                intra_items = await fetch_intraday()
+            except Exception:
+                pass
+            sigs = await generate_trade_signals(cached, intraday_items=intra_items,
+                                                regime=regime, max_signals=limit)
+            if ticker:
+                sigs = [s for s in sigs if s["ticker"] == ticker.upper()]
+            return JSONResponse({"signals": sigs, "count": len(sigs), "source": "live"})
+        except Exception as e:
+            return JSONResponse({"signals": [], "error": str(e)}, status_code=500)
+
+    try:
+        from db.supabase_sync import get_trade_signals
+        sigs = get_trade_signals(ticker=ticker.upper() if ticker else None,
+                                 status=status, limit=limit)
+        return JSONResponse({"signals": sigs, "count": len(sigs), "source": "supabase"})
+    except Exception as e:
+        return JSONResponse({"signals": [], "error": str(e)})
+
+
+@app.get("/api/earnings")
+async def api_earnings(days: int = Query(default=7)):
+    """
+    Upcoming earnings events for the watchlist within `days` calendar days.
+    Use for event-risk management — avoid new positions near earnings.
+    """
+    try:
+        from db.supabase_sync import get_upcoming_earnings
+        rows = get_upcoming_earnings(days_ahead=days)
+        if rows:
+            return JSONResponse({"earnings": rows, "count": len(rows), "source": "supabase"})
+    except Exception:
+        pass
+    # Live fallback
+    try:
+        from sources.earnings_calendar import fetch_earnings_calendar
+        items = await fetch_earnings_calendar(window_days=days)
+        earnings = [it["earnings_data"] for it in items if it.get("earnings_data")]
+        return JSONResponse({"earnings": earnings, "count": len(earnings), "source": "live"})
+    except Exception as e:
+        return JSONResponse({"earnings": [], "error": str(e)})
+
+
+@app.get("/api/snapshot/history")
+async def api_snapshot_history(limit: int = Query(default=50),
+                                regime: str = Query(default=None)):
+    """
+    Pipeline snapshot metadata history — regime, SRS, sentiment over time.
+    Each row is one pipeline run: queryable without decompression.
+    Use for: regime transition charts, SRS trends, sentiment time-series.
+    """
+    try:
+        from shared.data_lake import read_snapshot_index
+        rows = read_snapshot_index(limit=limit, regime=regime)
+        return JSONResponse({"snapshots": rows, "count": len(rows)})
+    except Exception as e:
+        return JSONResponse({"snapshots": [], "error": str(e)})
+
+
+@app.get("/api/snapshot/{snapshot_id}/features")
+async def api_snapshot_features(snapshot_id: str):
+    """
+    Load and decompress a snapshot, return its ML feature vector.
+    Use for: model training data preparation, signal replay.
+    """
+    try:
+        from shared.data_lake import load_snapshot, extract_feature_vector
+        payload = load_snapshot(snapshot_id)
+        if not payload:
+            return JSONResponse({"error": "snapshot not found"}, status_code=404)
+        features = extract_feature_vector(payload)
+        return JSONResponse({"snapshot_id": snapshot_id,
+                             "snapshot_at": payload.get("_snapshot_at"),
+                             "features": features})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":
