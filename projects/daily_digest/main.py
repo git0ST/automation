@@ -1,11 +1,15 @@
 """
-Intelligence Terminal v2.4 — FastAPI web server.
+Intelligence Terminal v2.5 — FastAPI web server.
 
 19-source pipeline: HN · arXiv · Reddit · GitHub · RSS · StackOverflow ·
   FRED · Credit Spreads · Fear&Greed · Finance · EDGAR · GDELT · StockTwits ·
   Options · CoinGecko · Congress · FINRA · Intraday (5min) · Earnings Calendar
 
-Endpoints:
+14-stage orchestrator: FETCH → FILTER → SCORE → SENTIMENT → INTELLIGENCE →
+  ANALYZE → BRIEF → ALERTS → STORE → OPPORTUNITY_SCAN → INTRADAY → EARNINGS →
+  SIGNAL_ENGINE → DATA_LAKE
+
+Endpoints (24):
   GET  /                            — Terminal UI (Bloomberg/Aladdin-style dark terminal)
   GET  /api/pipeline                — Full pipeline (cached 5 min, stale-while-revalidate)
   GET  /api/market                  — Market data only (cached 2 min)
@@ -24,6 +28,8 @@ Endpoints:
   GET  /api/earnings                — Upcoming earnings events (event-risk calendar)
   GET  /api/snapshot/history        — Pipeline snapshot metadata index (for ML)
   GET  /api/snapshot/{id}/features  — ML feature vector from a stored snapshot
+  GET  /api/backtest/summary        — Replay local snapshots: hit rate / expectancy / calibration
+  GET  /api/learning/status         — Self-improvement loop: weights, predictions, recommendations
   POST /api/query                   — Natural language query routing (manager agent)
   POST /api/summarize               — On-demand AI summary (Ollama)
   GET  /api/math/var/{ticker}       — Value at Risk (95/99), CVaR, Sharpe, Beta
@@ -802,6 +808,91 @@ async def api_snapshot_features(snapshot_id: str):
         return JSONResponse({"snapshot_id": snapshot_id,
                              "snapshot_at": payload.get("_snapshot_at"),
                              "features": features})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/backtest/summary")
+async def api_backtest_summary(
+    days:           int   = Query(default=14, ge=1, le=90),
+    min_confluence: float = Query(default=45.0, ge=30.0, le=90.0),
+):
+    """
+    Replay local pipeline snapshots and compute signal quality metrics.
+
+    Returns hit rates, expectancy, profit factor, and calibration broken down
+    by market type, regime, direction, and confluence band.
+
+    Data source: ~/.intl_snapshots/features_YYYYMMDD.jsonl.gz (local only — fast).
+    Outcomes: live yfinance price fetches to measure actual 7-day returns.
+
+    Note: requires at least 7 days of pipeline history for meaningful results.
+    """
+    try:
+        from agents.backtester import run_backtest
+        report = await run_backtest(days=days, min_confluence=min_confluence)
+        return JSONResponse(report)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/learning/status")
+async def api_learning_status():
+    """
+    Current state of the self-improvement loop.
+
+    Returns:
+      • Active model weights per regime
+      • Prediction count and settlement rate from Supabase
+      • Latest weight recommendation (if enough data)
+      • Per-market-type performance snapshot from v_market_performance
+    """
+    try:
+        from db.supabase_sync import get_client
+        sb = get_client()
+        if not sb:
+            return JSONResponse({"error": "Supabase not configured"}, status_code=503)
+
+        # Active weights
+        weights_res = sb.table("model_weights").select("*") \
+            .eq("active", True).order("market_type").execute()
+        weights = weights_res.data or []
+
+        # Prediction stats — total count + settled
+        pred_res = sb.table("predictions") \
+            .select("id, direction, return_7d, market_type, regime_at_pred, confidence_pct",
+                    count="exact") \
+            .execute()
+        preds     = pred_res.data or []
+        total     = pred_res.count or len(preds)
+        settled   = sum(1 for p in preds if p.get("return_7d") is not None)
+        hit_7d    = None
+        if settled > 0:
+            hits   = sum(1 for p in preds
+                         if p.get("return_7d") is not None
+                         and ((p.get("direction") in ("bullish","long")  and p["return_7d"] > 0)
+                          or  (p.get("direction") in ("bearish","short") and p["return_7d"] < 0)))
+            hit_7d = round(hits / settled, 3)
+
+        # Weight recommendation (via SQL function)
+        rec_res = sb.rpc("recommend_model_weights", {"p_min_observations": 20,
+                                                      "p_lookback_days": 90}).execute()
+        recommendation = (rec_res.data or [{}])[0]
+
+        # Per-market performance view
+        mkt_res = sb.table("v_market_performance").select("*").execute()
+        market_perf = mkt_res.data or []
+
+        return JSONResponse({
+            "active_weights":   weights,
+            "predictions": {
+                "total":       total,
+                "settled":     settled,
+                "hit_rate_7d": hit_7d,
+            },
+            "recommendation":   recommendation,
+            "market_performance": market_perf,
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

@@ -477,7 +477,7 @@ async def run_pipeline(
                 "run_meta":   {"timestamp": datetime.now(timezone.utc).isoformat(),
                                "sources": sources, "total_items": len(scored)},
             }
-            snap_result = write_snapshot(snap_payload)
+            snap_result = write_snapshot(snap_payload, intraday_items=intraday_items)
             store_stats["data_lake"] = snap_result
         except Exception as e:
             print(f"  [14] Data lake snapshot skipped: {e}")
