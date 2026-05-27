@@ -26,8 +26,10 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_regime ON pipeline_snapshots (regime, s
 CREATE INDEX IF NOT EXISTS idx_snapshots_srs    ON pipeline_snapshots (srs DESC);
 
 ALTER TABLE pipeline_snapshots ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "anon_read_snapshots"    ON pipeline_snapshots FOR SELECT USING (true);
-CREATE POLICY "service_write_snapshots" ON pipeline_snapshots FOR ALL USING (true);
+DROP POLICY IF EXISTS "anon_read_snapshots"     ON pipeline_snapshots;
+DROP POLICY IF EXISTS "service_write_snapshots" ON pipeline_snapshots;
+CREATE POLICY "anon_read_snapshots"     ON pipeline_snapshots FOR SELECT USING (true);
+CREATE POLICY "service_write_snapshots" ON pipeline_snapshots FOR ALL   USING (true);
 
 
 -- ── Intraday Bars (5-minute OHLCV) ───────────────────────────────────────────
@@ -52,8 +54,10 @@ CREATE INDEX IF NOT EXISTS idx_intraday_ticker ON intraday_bars (ticker, bar_tim
 CREATE INDEX IF NOT EXISTS idx_intraday_time   ON intraday_bars (bar_time DESC);
 
 ALTER TABLE intraday_bars ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "anon_read_intraday"    ON intraday_bars FOR SELECT USING (true);
-CREATE POLICY "service_write_intraday" ON intraday_bars FOR ALL USING (true);
+DROP POLICY IF EXISTS "anon_read_intraday"     ON intraday_bars;
+DROP POLICY IF EXISTS "service_write_intraday" ON intraday_bars;
+CREATE POLICY "anon_read_intraday"     ON intraday_bars FOR SELECT USING (true);
+CREATE POLICY "service_write_intraday" ON intraday_bars FOR ALL   USING (true);
 
 
 -- ── Trade Signals (execution-grade) ──────────────────────────────────────────
@@ -86,8 +90,10 @@ CREATE INDEX IF NOT EXISTS idx_trade_signals_status  ON trade_signals (status, f
 CREATE INDEX IF NOT EXISTS idx_trade_signals_fired   ON trade_signals (fired_at DESC);
 
 ALTER TABLE trade_signals ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "anon_read_trade_signals"    ON trade_signals FOR SELECT USING (true);
-CREATE POLICY "service_write_trade_signals" ON trade_signals FOR ALL USING (true);
+DROP POLICY IF EXISTS "anon_read_trade_signals"     ON trade_signals;
+DROP POLICY IF EXISTS "service_write_trade_signals" ON trade_signals;
+CREATE POLICY "anon_read_trade_signals"     ON trade_signals FOR SELECT USING (true);
+CREATE POLICY "service_write_trade_signals" ON trade_signals FOR ALL   USING (true);
 
 
 -- ── Earnings Events ───────────────────────────────────────────────────────────
@@ -107,5 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_earnings_date   ON earnings_events (earnings_date
 CREATE INDEX IF NOT EXISTS idx_earnings_ticker ON earnings_events (ticker);
 
 ALTER TABLE earnings_events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "anon_read_earnings"    ON earnings_events FOR SELECT USING (true);
-CREATE POLICY "service_write_earnings" ON earnings_events FOR ALL USING (true);
+DROP POLICY IF EXISTS "anon_read_earnings"     ON earnings_events;
+DROP POLICY IF EXISTS "service_write_earnings" ON earnings_events;
+CREATE POLICY "anon_read_earnings"     ON earnings_events FOR SELECT USING (true);
+CREATE POLICY "service_write_earnings" ON earnings_events FOR ALL   USING (true);
