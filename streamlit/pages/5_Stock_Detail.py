@@ -124,12 +124,16 @@ def main():
 
     # Live preview rows (rendered full-width below to avoid nested columns).
     from _terminal_chrome import render_search_results
-    render_search_results(sd_query, key_prefix="sd_search",
-                          session_key="detail_ticker", navigate_to=None)
+    shown = render_search_results(sd_query, key_prefix="sd_search",
+                                  session_key="detail_ticker", navigate_to=None)
 
-    # Raw fallback: still allow analyzing any symbol that isn't in our index.
+    # Raw fallback — ONLY when nothing matched the search (a genuinely unknown
+    # symbol like ROKU). If previews exist the user should click one; a
+    # company-name query like "apple" must not be analyzed as the literal
+    # symbol "APPLE".
     raw = (sd_query or "").strip().upper()
-    if raw and 1 <= len(raw) <= 6 and raw.replace("-", "").replace(".", "").isalnum() \
+    if not shown and raw and 1 <= len(raw) <= 6 \
+            and raw.replace("-", "").replace(".", "").isalnum() \
             and raw != st.session_state.get("detail_ticker"):
         if st.button(f"↗ Analyze {raw} directly", key="sd_raw_go"):
             st.session_state["detail_ticker"] = raw
