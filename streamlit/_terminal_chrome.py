@@ -207,11 +207,53 @@ def _fetch_tape_grouped() -> dict[str, list]:
     return groups
 
 
+def _require_auth() -> None:
+    """Fail-closed password gate for the whole app.
+
+    Reads APP_PASSWORD from Streamlit secrets (or env for local dev). If it
+    isn't configured, the app stays LOCKED (secure default) until set. This is
+    the primary defense: the deployed app is public, so without this anyone
+    could drive DB writes and burn API quota.
+    """
+    import os
+    import hmac
+
+    try:
+        secret_pw = st.secrets.get("APP_PASSWORD")
+    except Exception:
+        secret_pw = None
+    secret_pw = secret_pw or os.getenv("APP_PASSWORD")
+
+    if st.session_state.get("_authed"):
+        return
+
+    if not secret_pw:
+        st.markdown("## 🔒 INTL Terminal — locked")
+        st.warning(
+            "App password is not configured, so access is blocked (secure default). "
+            "Set **APP_PASSWORD** in Streamlit secrets "
+            "(*Manage app → Settings → Secrets*), then reload."
+        )
+        st.stop()
+
+    st.markdown("## 🔒 INTL Terminal")
+    st.caption("Private terminal — sign in to continue.")
+    pw = st.text_input("Password", type="password", key="_auth_pw",
+                       label_visibility="collapsed", placeholder="Password")
+    if pw:
+        if hmac.compare_digest(str(pw), str(secret_pw)):
+            st.session_state["_authed"] = True
+            st.rerun()
+        st.error("Incorrect password.")
+    st.stop()
+
+
 def render_chrome(current_page: str = "") -> None:
     """Render sidebar nav + ticker tape + command bar on every page.
 
     Call at the top of every page right after apply_theme().
     """
+    _require_auth()          # gate first — nothing renders until authenticated
     _render_sidebar_nav(current_page)
     _render_tape()
     _render_command_bar()
@@ -419,23 +461,25 @@ def render_search_results(query: str, key_prefix: str,
     if not query or not query.strip():
         return False
 
+    from _components import esc
     results = _search_tickers(query.strip(), limit=limit)
     if not results:
         st.markdown(
             f'<div style="color:#5a6378;font-size:11px;padding:4px 2px">'
-            f'No match for <b style="color:#8b93a7">{query.strip()}</b> — '
+            f'No match for <b style="color:#8b93a7">{esc(query.strip())}</b> — '
             f'try a symbol or partial name</div>',
             unsafe_allow_html=True,
         )
         return False
 
     for i, entry in enumerate(results):
-        tk       = entry["ticker"]
-        name     = entry["name"]
-        mtype    = entry["type"]
+        tk       = entry["ticker"]          # RAW — used in widget keys + navigation
+        tk_disp  = esc(tk)                   # escaped for display only
+        name     = esc(entry["name"])
+        mtype    = entry["type"]             # controlled enum (color lookup)
         price    = entry["price"]
         chg      = entry["change"]
-        logo_sym = entry.get("logo_sym")
+        logo_sym = esc(entry.get("logo_sym")) if entry.get("logo_sym") else None
 
         # Logo / fallback initials block
         if logo_sym:
@@ -447,14 +491,14 @@ def render_search_results(query: str, key_prefix: str,
                 f'<span style="display:none;width:28px;height:28px;border-radius:4px;'
                 f'background:#1e2d4a;align-items:center;justify-content:center;'
                 f'font-size:10px;font-weight:700;color:#4da6ff;flex-shrink:0">'
-                f'{tk[:2]}</span>'
+                f'{esc(tk[:2])}</span>'
             )
         else:
             logo_html = (
                 f'<span style="display:flex;width:28px;height:28px;border-radius:4px;'
                 f'background:#1a2034;align-items:center;justify-content:center;'
                 f'font-size:10px;font-weight:700;color:#8b93a7;flex-shrink:0">'
-                f'{tk[:2]}</span>'
+                f'{esc(tk[:2])}</span>'
             )
 
         tc    = _SEARCH_TYPE_COLOR.get(mtype, "#8b93a7")
@@ -473,10 +517,10 @@ def render_search_results(query: str, key_prefix: str,
                 f'  <div style="flex:1;min-width:0">'
                 f'    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
                 f'      <span style="font-family:IBM Plex Mono,monospace;font-size:13px;'
-                f'font-weight:700;color:#e6e9f0">{tk}</span>'
+                f'font-weight:700;color:#e6e9f0">{tk_disp}</span>'
                 f'      <span style="font-size:9px;font-weight:700;letter-spacing:.1em;'
                 f'color:{tc};background:{tc}18;border:1px solid {tc}44;'
-                f'padding:0 5px;border-radius:3px;flex-shrink:0">{mtype.upper()}</span>'
+                f'padding:0 5px;border-radius:3px;flex-shrink:0">{esc(mtype).upper()}</span>'
                 f'    </div>'
                 f'    <div style="font-size:11px;color:#8b93a7;white-space:nowrap;'
                 f'overflow:hidden;text-overflow:ellipsis;max-width:280px">{name}</div>'

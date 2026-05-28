@@ -19,7 +19,7 @@ st.set_page_config(page_title="Options Flow · INTL", page_icon="⚡", layout="w
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _theme      import apply_theme, COLORS, status_pill
 from _data       import supabase_client
-from _components import TICKER_META
+from _components import TICKER_META, esc
 apply_theme()
 from _terminal_chrome import render_chrome
 render_chrome("Options_Flow")
@@ -184,8 +184,8 @@ def main():
         icon = "▲" if sent == "bullish" else "▼" if sent == "bearish" else "—"
         color = "#00d68f" if sent == "bullish" else "#ff5773" if sent == "bearish" else "#8b93a7"
         ts = sig.get("created_at", "")[:16].replace("T", " ")
-        title = sig.get("title", "—")
-        preview = (sig.get("preview") or "")[:200]
+        title = esc(sig.get("title", "—"))
+        preview = esc((sig.get("preview") or "")[:200])
 
         st.markdown(
             f'<div style="background:#131825;border:1px solid #1f2937;border-radius:6px;'

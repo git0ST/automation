@@ -6,7 +6,25 @@ All components are self-contained HTML+CSS that work inside Streamlit's
 unsafe_allow_html context.
 """
 from __future__ import annotations
+import html as _html
 import streamlit as st
+
+
+# ── HTML-safety helpers (XSS defense for externally-sourced text) ─────────────
+# All these components emit raw HTML via unsafe_allow_html. Any value that
+# originates outside our own code (news titles/URLs from RSS/Reddit/etc.,
+# ticker names from the DB, user search input) MUST be escaped before
+# interpolation, or ingested content can inject script into the session.
+
+def esc(s) -> str:
+    """HTML-escape any externally-sourced string (quotes included)."""
+    return _html.escape(str(s), quote=True) if s is not None else ""
+
+
+def safe_url(u) -> str:
+    """Allow only http/https links — blocks javascript:/data: URL injection."""
+    u = str(u or "").strip()
+    return esc(u) if u.lower().startswith(("http://", "https://")) else "#"
 
 
 # ── Ticker → Company name + logo mapping ─────────────────────────────────────
@@ -450,10 +468,11 @@ def news_item_card(item: dict) -> str:
     icon = "▲" if sent == "bullish" else "▼" if sent == "bearish" else "·"
     color = "#00d68f" if sent == "bullish" else "#ff5773" if sent == "bearish" else "#8b93a7"
     src = (item.get("source") or "?").lower()
-    title = (item.get("title") or "—")[:120]
-    url = item.get("url") or "#"
+    # Externally-sourced → must be escaped/sanitized before HTML interpolation
+    title = esc((item.get("title") or "—")[:120])
+    url = safe_url(item.get("url"))
     score = item.get("terminal_score") or 0
-    preview = (item.get("preview") or "")[:200]
+    preview = esc((item.get("preview") or "")[:200])
 
     return f"""
     <div style="background:#131825;border:1px solid #1f2937;border-radius:6px;

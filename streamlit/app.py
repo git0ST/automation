@@ -35,7 +35,7 @@ from _data             import (load_articles, load_signals, load_market_snapshot
                                 check_setup_status, load_weighted_sentiment,
                                 load_data_freshness)
 from _components       import (ticker_card, render_ticker_grid, news_item_card,
-                                source_badge, regime_card, TICKER_META)
+                                source_badge, regime_card, TICKER_META, esc)
 apply_theme()
 render_chrome("overview")
 
@@ -652,8 +652,8 @@ def main():
                 s_sent  = sig.get("sentiment_label") or "neutral"
                 s_icon  = "▲" if s_sent == "bullish" else "▼" if s_sent == "bearish" else "—"
                 s_color = "#00d68f" if s_sent == "bullish" else "#ff5773" if s_sent == "bearish" else "#8b93a7"
-                src     = (sig.get("source") or "?").upper()[:5]
-                title   = (sig.get("title") or "—")[:48]
+                src     = esc((sig.get("source") or "?").upper()[:5])
+                title   = esc((sig.get("title") or "—")[:48])
                 st.markdown(
                     f'<div style="background:#131825;border:1px solid #1f2937;'
                     f'border-radius:4px;padding:6px 10px;margin-bottom:4px;'
