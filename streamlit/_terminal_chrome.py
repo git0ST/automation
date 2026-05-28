@@ -491,7 +491,6 @@ def _render_command_bar():
             if st.button("↗", key=f"_srch_{tk}_{i}", help=f"Open {tk} in Deep Dive",
                          use_container_width=True):
                 st.session_state["detail_ticker"] = tk
-                st.session_state["_search_q"] = ""
                 st.switch_page("pages/5_Stock_Detail.py")
 
 
