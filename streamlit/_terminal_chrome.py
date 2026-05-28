@@ -1,4 +1,4 @@
-"""Terminal chrome — ticker tape + command bar shown on every page.
+"""Terminal chrome — sidebar nav + ticker tape + command bar shown on every page.
 
 Bloomberg-style persistent header: real-time prices on a strip + a
 universal ticker lookup that jumps directly to Stock Detail.
@@ -7,6 +7,116 @@ Call render_chrome() at the top of every page right after apply_theme().
 """
 from __future__ import annotations
 import streamlit as st
+
+
+# ── Sidebar navigation ────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_regime_srs() -> tuple[str, str, str, int, str]:
+    """Return (regime_label, regime_color, conf_str, srs, srs_level). Cached 5 min."""
+    try:
+        from _data import load_regime_risk
+        regime, risk, _, _ = load_regime_risk()
+        from _theme import REGIME_COLORS
+        r_label  = regime.get("label", "—") if regime else "—"
+        r_conf   = f"{regime.get('confidence_pct', 0):.0f}%" if regime else "—"
+        r_color  = REGIME_COLORS.get(regime.get("regime", ""), "#8b93a7") if regime else "#8b93a7"
+        srs      = int(risk.get("srs", 0)) if risk else 0
+        srs_lvl  = risk.get("level", "—") if risk else "—"
+        return r_label, r_color, r_conf, srs, srs_lvl
+    except Exception:
+        return "—", "#8b93a7", "—", 0, "—"
+
+
+def _render_sidebar_nav(current_page: str = "") -> None:
+    """Render the persistent grouped navigation rail in the sidebar.
+
+    Groups mirror an HFT trader's daily decision flow:
+      SIGNALS  → what to act on now
+      MARKETS  → situational awareness
+      PORTFOLIO → manage current exposure
+      RESEARCH  → build edge
+    """
+    with st.sidebar:
+        # ── Brand ─────────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="display:flex;align-items:baseline;gap:8px;padding:10px 12px 6px">'
+            '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:17px;'
+            'font-weight:700;color:#e8a435;letter-spacing:.18em">INTL</span>'
+            '<span style="font-size:9px;color:#3a4060;letter-spacing:.06em">TERMINAL · v2.5</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Persistent regime + SRS status strip ──────────────────────────────
+        r_label, r_color, r_conf, srs, srs_lvl = _fetch_regime_srs()
+        srs_color = (
+            "#00d68f" if srs < 26 else
+            "#ffaa00" if srs < 51 else
+            "#ff8800" if srs < 76 else
+            "#ff5773"
+        )
+        st.markdown(
+            f'<div class="nav-status">'
+            f'<div class="nav-stat">'
+            f'<div class="nav-stat-lbl">REGIME</div>'
+            f'<div class="nav-stat-val" style="color:{r_color}">{r_label}</div>'
+            f'<div style="font-size:8.5px;color:#5a6378">{r_conf}</div>'
+            f'</div>'
+            f'<div class="nav-stat">'
+            f'<div class="nav-stat-lbl">SRS</div>'
+            f'<div class="nav-stat-val" style="color:{srs_color}">{srs}</div>'
+            f'<div style="font-size:8.5px;color:#5a6378">{srs_lvl}</div>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── SIGNALS ───────────────────────────────────────────────────────────
+        st.markdown('<div class="nav-section">SIGNALS</div>', unsafe_allow_html=True)
+        st.page_link("app.py",                    label="📊 Overview",     help="Regime · macro pulse · top setups")
+        st.page_link("pages/6_Opportunities.py",  label="🎯 Setups",       help="High-conviction trade ideas ranked by confidence")
+        st.page_link("pages/8_Options_Flow.py",   label="⚡ Options Flow",  help="Unusual activity · institutional positioning")
+
+        # ── MARKETS ───────────────────────────────────────────────────────────
+        st.markdown('<div class="nav-section">MARKETS</div>', unsafe_allow_html=True)
+        st.page_link("pages/A_Global_Markets.py", label="🌍 Global",        help="World indices · FX · commodities")
+        st.page_link("pages/1_Markets.py",        label="📈 US Sectors",    help="Sector rotation heatmap · money flow")
+        st.page_link("pages/5_Stock_Detail.py",   label="🔍 Deep Dive",     help="Single ticker · technicals · signals · news")
+
+        # ── PORTFOLIO ─────────────────────────────────────────────────────────
+        st.markdown('<div class="nav-section">PORTFOLIO</div>', unsafe_allow_html=True)
+        st.page_link("pages/4_Portfolio.py",      label="💼 Positions",     help="Holdings · P&L · exposure")
+        st.page_link("pages/2_Risk.py",           label="🛡 Risk",          help="VaR · drawdown · correlation")
+
+        # ── RESEARCH ──────────────────────────────────────────────────────────
+        st.markdown('<div class="nav-section">RESEARCH</div>', unsafe_allow_html=True)
+        st.page_link("pages/3_Research.py",       label="🤖 AI Analysis",   help="LLM-powered research · data queries")
+        st.page_link("pages/9_Strategies.py",     label="🎲 Strategies",    help="Playbooks · regime-matched tactics")
+        st.page_link("pages/7_Track_Record.py",   label="📋 Track Record",  help="Model accuracy · backtests · hit rate")
+
+        # ── Pipeline status (collapsed) ───────────────────────────────────────
+        st.markdown('<div style="margin-top:10px;border-top:1px solid #1f2937"></div>',
+                    unsafe_allow_html=True)
+        with st.expander("⚙️ Pipeline", expanded=False):
+            try:
+                from _data import check_setup_status
+                status = check_setup_status()
+                if status.get("supabase_connected"):
+                    if status.get("has_pipeline_data"):
+                        rows = status["tables"]["articles"]["rows"]
+                        st.markdown(f"✅ **{rows}** articles · active")
+                    else:
+                        st.markdown("⚠️ No pipeline data yet")
+                        st.link_button(
+                            "🚀 Trigger pipeline",
+                            "https://github.com/git0ST/automation/actions/workflows/digest.yml",
+                            use_container_width=True,
+                        )
+                else:
+                    st.markdown("❌ Supabase not connected")
+            except Exception:
+                st.caption("Status unavailable")
 
 
 # Always-visible tape tickers — global + US + crypto pulse
@@ -55,10 +165,11 @@ def _fetch_tape() -> dict:
 
 
 def render_chrome(current_page: str = "") -> None:
-    """Render the persistent ticker tape + command bar.
+    """Render sidebar nav + ticker tape + command bar on every page.
 
     Call at the top of every page right after apply_theme().
     """
+    _render_sidebar_nav(current_page)
     _render_tape()
     _render_command_bar()
 

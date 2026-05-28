@@ -415,20 +415,13 @@ def _format_freshness(minutes_ago: float | None) -> tuple[str, str]:
 # ════════════════════════════════════════════════════════════════════════════
 
 def render_sidebar(regime: dict, risk: dict, source: str) -> None:
-    with st.sidebar:
-        # Header with explicit collapse hint
-        col_title, col_close = st.columns([5, 1])
-        with col_title:
-            st.markdown("### 📊 INTL Terminal")
-            st.caption("v2.3 · Aladdin-inspired platform")
-        with col_close:
-            st.markdown(
-                '<div style="text-align:right;color:#5a6378;font-size:11px;margin-top:8px" '
-                'title="Use the « icon at the top to collapse the sidebar">«</div>',
-                unsafe_allow_html=True,
-            )
+    """Render regime + SRS detail cards on the overview page.
 
-        # Data freshness pill
+    Navigation is handled by _terminal_chrome.render_chrome() on all pages.
+    These cards add expanded detail only on the overview.
+    """
+    with st.sidebar:
+        # Data source pill
         if source == "supabase":
             st.markdown(status_pill("● LIVE · Supabase", "live"), unsafe_allow_html=True)
         elif source == "live_fred":
@@ -436,79 +429,50 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
         else:
             st.markdown(status_pill("○ No data", "error"), unsafe_allow_html=True)
 
-        st.divider()
-
-        # Regime card
+        # Regime detail card
         if regime:
             r_label = regime.get("label", "—")
             r_color = REGIME_COLORS.get(regime.get("regime", ""), "#888")
             r_conf  = regime.get("confidence_pct", 0)
             t_risk  = regime.get("transition_risk", "—")
+            favors  = ", ".join((regime.get("favors") or [])[:3])
+            avoids  = ", ".join((regime.get("avoids") or [])[:2])
             st.markdown(f"""
-            <div class="sidebar-card">
-              <div style="font-size:9px;color:#8b93a7;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px;font-weight:600">Market Regime</div>
+            <div class="sidebar-card" style="margin-top:8px">
+              <div style="font-size:9px;color:#8b93a7;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px;font-weight:600">Regime Detail</div>
               <div class="regime-badge" style="color:{r_color};background:{r_color}1a;border:1px solid {r_color}44">{r_label}</div>
-              <div style="margin-top:10px;font-size:11px;color:#8b93a7">
-                Confidence: <span style="color:#e6e9f0;font-family:'IBM Plex Mono',monospace">{r_conf:.0f}%</span>
-              </div>
-              <div style="font-size:11px;color:#8b93a7;margin-top:4px">
-                Transition: <span style="color:#e6e9f0">{t_risk}</span>
-              </div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="sidebar-card">
-              <div style="font-size:9px;color:#8b93a7;letter-spacing:.14em;text-transform:uppercase">Regime</div>
-              <div style="color:#5a6378;font-size:13px;margin-top:8px">No data yet</div>
+              <div style="margin-top:8px;font-size:11px;color:#8b93a7">Confidence: <span style="color:#e6e9f0;font-family:'IBM Plex Mono',monospace">{r_conf:.0f}%</span></div>
+              <div style="font-size:11px;color:#8b93a7;margin-top:3px">Transition: <span style="color:#e6e9f0">{t_risk}</span></div>
+              {f'<div style="font-size:10px;color:#5a6378;margin-top:6px">↑ {favors}</div>' if favors else ''}
+              {f'<div style="font-size:10px;color:#5a6378">↓ {avoids}</div>' if avoids else ''}
             </div>""", unsafe_allow_html=True)
 
-        # Risk gauge
+        # SRS detail card
         if risk:
             srs   = risk.get("srs", 0)
             level = risk.get("level", "—")
-            c = "#00d68f" if srs < 26 else "#ffaa00" if srs < 51 else "#ff8800" if srs < 76 else "#ff5773"
+            c     = "#00d68f" if srs < 26 else "#ffaa00" if srs < 51 else "#ff8800" if srs < 76 else "#ff5773"
+            factors = risk.get("factors") or []
+            factor_html = "".join(
+                f'<div style="display:flex;justify-content:space-between;font-size:10px;margin-top:3px">'
+                f'<span style="color:#5a6378">{f["name"]}</span>'
+                f'<span style="color:{c}">{f["score"]:.0f}</span></div>'
+                for f in factors[:4]
+            )
             st.markdown(f"""
             <div class="sidebar-card">
-              <div style="font-size:9px;color:#8b93a7;letter-spacing:.14em;text-transform:uppercase;font-weight:600">Systemic Risk Score</div>
-              <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
-                <span style="font-size:28px;font-weight:700;color:{c};font-family:'IBM Plex Mono',monospace">{srs:.0f}</span>
+              <div style="font-size:9px;color:#8b93a7;letter-spacing:.14em;text-transform:uppercase;font-weight:600">Risk Factors</div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-top:6px">
+                <span style="font-size:24px;font-weight:700;color:{c};font-family:'IBM Plex Mono',monospace">{srs:.0f}</span>
                 <span style="font-size:11px;color:#8b93a7">/ 100 · <span style="color:{c}">{level}</span></span>
               </div>
-              <div class="srs-bar-container" style="margin-top:8px">
+              <div class="srs-bar-container" style="margin-top:6px">
                 <div class="srs-bar" style="width:{srs}%;background:{c}"></div>
               </div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="sidebar-card">
-              <div style="font-size:9px;color:#8b93a7;letter-spacing:.14em;text-transform:uppercase">Systemic Risk</div>
-              <div style="color:#5a6378;font-size:13px;margin-top:8px">No data yet</div>
+              {factor_html}
             </div>""", unsafe_allow_html=True)
 
-        st.divider()
-
-        # Pipeline trigger CTA
-        with st.expander("⚙️ Pipeline Status"):
-            try:
-                status = check_setup_status()
-                if status.get("supabase_connected"):
-                    has_data = status.get("has_pipeline_data", False)
-                    if has_data:
-                        rows = status["tables"]["articles"]["rows"]
-                        st.markdown(f"✅ **{rows}** articles · Pipeline active")
-                    else:
-                        st.markdown("⚠️ **No pipeline data yet**")
-                        st.link_button(
-                            "🚀 Trigger pipeline cron",
-                            "https://github.com/git0ST/automation/actions/workflows/digest.yml",
-                            use_container_width=True,
-                        )
-                else:
-                    st.markdown("❌ Supabase not connected")
-            except Exception:
-                st.caption("Status check failed")
-
-        st.caption("Data: Yahoo Finance · FRED · ICE BofA · Groq AI")
+        st.caption("Yahoo Finance · FRED · ICE BofA · Groq AI")
 
 
 # ════════════════════════════════════════════════════════════════════════════

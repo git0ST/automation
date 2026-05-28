@@ -259,25 +259,63 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   background: #0a0e1a !important;
   border-right: 1px solid #1f2937 !important;
 }
-/* Streamlit auto-generated pages navigation — styled to match terminal theme */
-[data-testid="stSidebarNav"] {
-  background: #0a0e1a !important;
-  padding-top: 4px !important;
+/* Hide Streamlit auto-nav — replaced by custom grouped nav in render_chrome() */
+[data-testid="stSidebarNav"] { display: none !important; }
+
+/* ── Custom sidebar nav ─────────────────────────────────────────────── */
+.nav-section {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: #3a4060;
+  padding: 14px 12px 4px;
+  border-top: 1px solid #1f2937;
+  margin-top: 4px;
 }
-[data-testid="stSidebarNav"] a {
+.nav-section:first-child { border-top: none; margin-top: 0; }
+
+/* Status strip — regime + SRS always visible */
+.nav-status {
+  display: flex;
+  gap: 0;
+  border: 1px solid #1f2937;
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 8px 10px 6px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.nav-stat {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 10px;
+  background: #0f1422;
+  border-right: 1px solid #1f2937;
+  line-height: 1.3;
+}
+.nav-stat:last-child { border-right: none; }
+.nav-stat-lbl { font-size: 7.5px; color: #3a4060; letter-spacing: .1em; text-transform: uppercase; }
+.nav-stat-val { font-weight: 700; font-size: 12px; }
+
+/* page_link overrides */
+[data-testid="stSidebar"] [data-testid="stPageLink"] a,
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
   border-radius: 4px !important;
-  font-size: 13px !important;
+  font-size: 12.5px !important;
   font-weight: 500 !important;
   color: #8b93a7 !important;
-  padding: 6px 12px !important;
-  transition: background 0.12s, color 0.12s !important;
+  padding: 5px 12px !important;
+  margin: 0 4px !important;
+  transition: background .1s, color .1s !important;
 }
-[data-testid="stSidebarNav"] a:hover {
+[data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {
   background: #131825 !important;
   color: #e6e9f0 !important;
 }
-[data-testid="stSidebarNav"] a[aria-current="page"] {
-  background: #1a2034 !important;
+[data-testid="stSidebar"] [data-testid="stPageLink"][aria-current="page"] a,
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"][aria-current="page"] {
+  background: #111c34 !important;
   color: #4c8bf5 !important;
   font-weight: 600 !important;
 }
