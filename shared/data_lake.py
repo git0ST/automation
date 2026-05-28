@@ -23,7 +23,7 @@ import gzip
 import json
 import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -332,6 +332,11 @@ def load_feature_store(days: int = 30) -> list[dict]:
 # Capturing it (with entry price + timestamp) turns the data lake into a proper
 # supervised dataset: features now, forward-return labels joined later.
 
+# Bump when build_scan_feature_row's columns change — stored on every row so a
+# future schema change can be filtered/migrated instead of silently breaking ML.
+_SCAN_SCHEMA_VERSION = 1
+
+
 def _num(x):
     """Coerce to float or None — keeps the store clean for pandas/sklearn."""
     try:
@@ -369,6 +374,8 @@ def build_scan_feature_row(ticker: str, sector: str | None,
         return _num((fac.get(name) or {}).get("score"))
 
     return {
+        # ── Schema version (lets the corpus evolve without corrupting training)
+        "_v":            _SCAN_SCHEMA_VERSION,
         # ── Identity / context ───────────────────────────────────────────────
         "ts":            ts,
         "ticker":        ticker,
@@ -460,6 +467,167 @@ def load_scan_features(days: int = 60) -> list[dict]:
         except Exception:
             continue
     return rows
+
+
+# ── Offline labeling job — turn features into trainable (X, y) ────────────────
+# Joins strictly-FUTURE forward returns onto each point-in-time feature row, so
+# there is no look-ahead: features were frozen at row['ts']; labels come only
+# from closes after that date. Rebuilds the labeled file from scratch each run
+# (idempotent; 30d labels fill in as rows age). This is what converts the
+# growing feature corpus into a supervised dataset for predictive models.
+
+_LABELED_PATH = _SNAP_DIR / "labeled_features.jsonl.gz"
+
+
+def build_labeled_dataset(horizons: tuple = (1, 3, 7, 30),
+                          benchmark: str = "SPY",
+                          lookback_days: int = 180,
+                          min_age_days: int = 1) -> dict:
+    """Build/refresh the labeled training dataset from the scan feature store.
+
+    For each feature row, computes calendar-anchored forward returns at each
+    horizon, the excess return vs `benchmark` (alpha — top players label vs a
+    benchmark so the model learns edge, not just market beta), MFE/MAE over 30d
+    (enables triple-barrier-style labels), and binary up/down labels.
+
+    Returns {feature_rows, labeled, tickers, errors, out_path}.
+    """
+    try:
+        import yfinance as yf
+        import pandas as pd
+    except ImportError:
+        return {"error": "yfinance + pandas required"}
+
+    feats = load_scan_features(days=lookback_days)
+    if not feats:
+        return {"feature_rows": 0, "labeled": 0, "msg": "no feature rows yet"}
+
+    now = datetime.now(timezone.utc)
+
+    # Keep rows old enough that at least the shortest horizon has elapsed
+    pending = []
+    for r in feats:
+        try:
+            ts = datetime.fromisoformat(r["ts"])
+        except Exception:
+            continue
+        if (now - ts).days >= min_age_days and r.get("price"):
+            pending.append((r, ts))
+    if not pending:
+        return {"feature_rows": len(feats), "labeled": 0,
+                "msg": "no rows old enough to label yet"}
+
+    # Batch-fetch price history per unique ticker (+ benchmark) once
+    tickers = sorted({r["ticker"] for r, _ in pending} | {benchmark})
+    earliest = min(ts for _, ts in pending)
+    start = (earliest - timedelta(days=3)).strftime("%Y-%m-%d")
+
+    def _series(tk):
+        try:
+            h = yf.Ticker(tk).history(start=start, auto_adjust=True)
+            if h.empty:
+                return None
+            idx = h.index
+            if getattr(idx, "tz", None) is not None:
+                idx = idx.tz_convert("UTC").tz_localize(None)
+            return pd.Series(h["Close"].values,
+                             index=pd.DatetimeIndex(idx).normalize()).sort_index()
+        except Exception:
+            return None
+
+    hist = {tk: _series(tk) for tk in tickers}
+    bench = hist.get(benchmark)
+
+    def _fwd(series, base, pred_date, days):
+        sub = series[series.index >= pred_date + pd.Timedelta(days=days)]
+        return (float(sub.iloc[0]) / base - 1) * 100 if len(sub) else None
+
+    labeled, errors = [], 0
+    for r, ts in pending:
+        try:
+            s = hist.get(r["ticker"])
+            base = float(r["price"])
+            if s is None or base <= 0:
+                continue
+            pred_date = pd.Timestamp(ts.date())
+            row = dict(r)
+            for h in horizons:
+                v = _fwd(s, base, pred_date, h)
+                row[f"fwd_ret_{h}d"] = round(v, 4) if v is not None else None
+
+            # Excess vs benchmark at 7d (alpha label)
+            row["fwd_ret_7d_excess"] = None
+            if bench is not None and row.get("fwd_ret_7d") is not None:
+                bret = _fwd(bench, float(bench[bench.index <= pred_date].iloc[-1])
+                            if len(bench[bench.index <= pred_date]) else base,
+                            pred_date, 7)
+                if bret is not None:
+                    row["fwd_ret_7d_excess"] = round(row["fwd_ret_7d"] - bret, 4)
+
+            # MFE / MAE over the first 30 calendar days (triple-barrier inputs)
+            window = s[(s.index >= pred_date) &
+                       (s.index <= pred_date + pd.Timedelta(days=30))].values
+            row["mfe_30d"] = round((float(window.max()) / base - 1) * 100, 4) if len(window) else None
+            row["mae_30d"] = round((float(window.min()) / base - 1) * 100, 4) if len(window) else None
+
+            # Binary direction labels (the simplest y to start with)
+            row["label_up_7d"]  = (int(row["fwd_ret_7d"]  > 0) if row.get("fwd_ret_7d")  is not None else None)
+            row["label_up_30d"] = (int(row["fwd_ret_30d"] > 0) if row.get("fwd_ret_30d") is not None else None)
+            row["labeled_at"] = now.isoformat()
+            labeled.append(row)
+        except Exception:
+            errors += 1
+            continue
+
+    # Rebuild the labeled file fresh (idempotent)
+    _SNAP_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with gzip.open(_LABELED_PATH, "wt", encoding="utf-8") as f:
+            for row in labeled:
+                f.write(json.dumps(row, default=str) + "\n")
+    except Exception as e:
+        return {"feature_rows": len(feats), "labeled": len(labeled),
+                "error": f"write failed: {e}"}
+
+    return {
+        "feature_rows": len(feats),
+        "labeled":      len(labeled),
+        "tickers":      len([t for t in tickers if hist.get(t) is not None]),
+        "errors":       errors,
+        "out_path":     str(_LABELED_PATH),
+    }
+
+
+def load_labeled_dataset() -> list[dict]:
+    """Load the labeled training dataset (features + forward-return labels)."""
+    if not _LABELED_PATH.exists():
+        return []
+    rows = []
+    try:
+        with gzip.open(_LABELED_PATH, "rt", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+    except Exception:
+        pass
+    return rows
+
+
+def feature_store_stats() -> dict:
+    """At-a-glance corpus health: row counts, date span, ticker + label coverage."""
+    feats = load_scan_features(days=365)
+    labeled = load_labeled_dataset()
+    ts_vals = sorted(r.get("ts") for r in feats if r.get("ts"))
+    n_settled_7d = sum(1 for r in labeled if r.get("fwd_ret_7d") is not None)
+    return {
+        "feature_rows":   len(feats),
+        "labeled_rows":   len(labeled),
+        "settled_7d":     n_settled_7d,
+        "unique_tickers": len({r.get("ticker") for r in feats}),
+        "first_ts":       ts_vals[0] if ts_vals else None,
+        "last_ts":        ts_vals[-1] if ts_vals else None,
+    }
 
 
 # ── Full snapshot write ────────────────────────────────────────────────────────
