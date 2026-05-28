@@ -259,7 +259,8 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   background: #0a0e1a !important;
   border-right: 1px solid #1f2937 !important;
 }
-[data-testid="stSidebarNav"] { background: #0a0e1a !important; }
+/* Hide Streamlit's auto-generated pages navigation — custom nav in render_sidebar() */
+[data-testid="stSidebarNav"] { display: none !important; }
 
 .sidebar-card {
   background: #131825;
