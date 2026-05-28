@@ -80,28 +80,40 @@ def correlate_outcomes(batch_limit: int = 200) -> dict:
                     skipped += 1
                     continue
                 pred_dt = datetime.fromisoformat(r["predicted_at"].replace("Z", "+00:00"))
-                # Robust date alignment: normalize the price index to tz-naive
-                # UTC, then keep only closes on/after the prediction timestamp.
-                # (The old fallback indexed into the MIDDLE of the series on any
-                # tz mismatch, fabricating bogus returns — removed.)
+                # Robust CALENDAR-anchored forward returns. Normalize the price
+                # index to tz-naive UTC, then for each horizon take the first
+                # close on/after (prediction date + N calendar days). This avoids
+                # the old positional offset whose meaning flipped between same-day
+                # and next-day depending on the prediction's time of day, and the
+                # buggy fallback that indexed the middle of the series.
                 idx = closes.index
                 if getattr(idx, "tz", None) is not None:
                     idx_cmp = idx.tz_convert("UTC").tz_localize(None)
                 else:
                     idx_cmp = idx
-                pred_naive = pred_dt.astimezone(timezone.utc).replace(tzinfo=None)
-                future = closes[idx_cmp >= pred_naive]
+                # Anchor on the calendar DATE (strip intraday time) so "+N days"
+                # maps to the close N calendar days later regardless of when the
+                # prediction was logged or the bar's UTC timestamp.
+                s = pd.Series(closes.values,
+                              index=pd.DatetimeIndex(idx_cmp).normalize()).sort_index()
+                pred_date = pd.Timestamp(pred_dt.astimezone(timezone.utc).date())
+
+                future = s[s.index >= pred_date]
                 if len(future) == 0:
                     skipped += 1
                     continue  # prediction newer than all fetched bars
 
-                vals = future.values
-                ret_1d  = (vals[0]  / base - 1) * 100 if len(vals) >= 1  else None
-                ret_3d  = (vals[2]  / base - 1) * 100 if len(vals) >= 3  else None
-                ret_7d  = (vals[6]  / base - 1) * 100 if len(vals) >= 7  else None
-                ret_30d = (vals[29] / base - 1) * 100 if len(vals) >= 30 else None
+                def _fwd(days):
+                    sub = s[s.index >= pred_date + pd.Timedelta(days=days)]
+                    return (float(sub.iloc[0]) / base - 1) * 100 if len(sub) else None
 
-                window = vals[:min(30, len(vals))]
+                ret_1d  = _fwd(1)
+                ret_3d  = _fwd(3)
+                ret_7d  = _fwd(7)
+                ret_30d = _fwd(30)
+
+                # MFE/MAE over the first ~30 calendar days from the prediction
+                window = future[future.index <= pred_date + pd.Timedelta(days=30)].values
                 max_fav = ((window.max() / base) - 1) * 100 if len(window) else None
                 max_adv = ((window.min() / base) - 1) * 100 if len(window) else None
 

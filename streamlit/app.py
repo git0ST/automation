@@ -176,9 +176,36 @@ def _render_alert_banner():
                 st.rerun()
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _recent_annual_vol(tickers: tuple) -> dict:
+    """Recent annualized realized vol per ticker (~1mo daily log returns).
+
+    Used to set volatility-scaled stops — only a handful of setup names, so the
+    extra fetch is cheap and cached 30 min. Degrades to {} on any failure.
+    """
+    out: dict = {}
+    try:
+        import yfinance as yf
+        import numpy as np
+        for tk in tickers:
+            try:
+                h = yf.Ticker(tk).history(period="2mo", interval="1d", auto_adjust=True)
+                c = h["Close"].values
+                if len(c) >= 15:
+                    lr = np.diff(np.log(c[-21:]))
+                    if lr.size > 1:
+                        out[tk] = float(np.std(lr, ddof=1) * np.sqrt(252))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
 def _render_todays_setups():
-    """Top 5 highest-conviction setups from the latest pipeline snapshot,
-    each with concrete entry/stop/target/position size + freshness watcher."""
+    """Top highest-conviction setups from the latest pipeline snapshot, each with
+    volatility-scaled entry/stop/target, edge-based size, and a portfolio-level
+    gross-exposure cap so the book can't over-concentrate."""
     client = supabase_client()
     if not client:
         return
@@ -253,6 +280,18 @@ def _render_todays_setups():
 
     portfolio = st.session_state["portfolio_value"]
 
+    from _strategy_engine import kelly_position_sizing
+    from _components import TICKER_META, get_logo_url
+
+    GROSS_CAP = 0.60   # max fraction of the portfolio deployed across ALL setups
+
+    # Vol-scaled stops: fetch recent realized vol for just these few names so the
+    # stop reflects each stock's volatility (a 60%-vol and a 15%-vol name must not
+    # carry the same 4% stop). Falls back to a flat 4% when vol is unavailable.
+    vol_map = _recent_annual_vol(tuple(r["ticker"] for r in rows))
+
+    # ── Pass 1: levels + edge-based size for each candidate ───────────────────
+    setups = []
     for r in rows:
         ticker     = r["ticker"]
         direction  = r["direction"]
@@ -261,44 +300,68 @@ def _render_todays_setups():
         if price <= 0:
             continue
 
-        # ATR proxy: use 2% of price as stop distance (conservative default)
-        # since we don't have ATR in the snapshot — could be refined later
-        atr_pct = 0.02
-        if direction == "bullish":
-            stop_pct   = 2 * atr_pct
-            target_pct = 4 * atr_pct
-            stop   = price * (1 - stop_pct)
-            target = price * (1 + target_pct)
-            action_label = "BUY"
-            action_color = "#00d68f"
+        ann_vol = vol_map.get(ticker)
+        if ann_vol and ann_vol > 0:
+            stop_pct = min(0.12, max(0.025, 2.0 * ann_vol / (252 ** 0.5)))  # 2× daily vol, clamped
         else:
-            stop_pct   = 2 * atr_pct
-            target_pct = 4 * atr_pct
-            stop   = price * (1 + stop_pct)
-            target = price * (1 - target_pct)
-            action_label = "SHORT"
-            action_color = "#ff5773"
+            stop_pct = 0.04
+        target_pct = 2.0 * stop_pct          # R/R 2:1
 
-        # Position sizing: fractional-Kelly on the CALIBRATED win probability.
-        # payoff b = target/stop distance = 2:1 here. Size tracks measured edge;
-        # if edge ≤ 0 Kelly returns 0 → the model says don't take the trade.
-        from _strategy_engine import kelly_position_sizing
+        if direction == "bullish":
+            stop, target = price * (1 - stop_pct), price * (1 + target_pct)
+            action_label, action_color = "BUY", "#00d68f"
+        else:
+            stop, target = price * (1 + stop_pct), price * (1 - target_pct)
+            action_label, action_color = "SHORT", "#ff5773"
+
+        # Quarter-Kelly on the CALIBRATED win probability; edge ≤ 0 → no_trade.
         kelly = kelly_position_sizing(
-            win_prob=confidence / 100,
-            payoff_ratio=(target_pct / stop_pct) if stop_pct else 2.0,
-            portfolio_value=portfolio,
-            stop_pct=stop_pct,
-            kelly_fraction=0.25,   # quarter-Kelly: conservative while calibration
-                                   # matures + keeps sizing differentiated below the cap
+            win_prob=confidence / 100, payoff_ratio=target_pct / stop_pct,
+            portfolio_value=portfolio, stop_pct=stop_pct, kelly_fraction=0.25,
         )
-        position_value = kelly["position_value"]
-        shares = position_value / price if price > 0 else 0
+        setups.append({
+            "r": r, "ticker": ticker, "direction": direction, "confidence": confidence,
+            "price": price, "stop": stop, "target": target, "stop_pct": stop_pct,
+            "action_label": action_label, "action_color": action_color,
+            "kelly": kelly, "position_value": kelly["position_value"],
+        })
 
-        # Strategy names (if any)
+    # ── Pass 2: portfolio-level concentration cap ─────────────────────────────
+    # Sizing names independently can deploy 5×15% = 75% into often-correlated
+    # tech names. Cap TOTAL deployed at GROSS_CAP and scale proportionally — the
+    # exposure discipline that protects compounding from a correlated drawdown.
+    total_desired = sum(s["position_value"] for s in setups)
+    scale = 1.0
+    if total_desired > portfolio * GROSS_CAP and total_desired > 0:
+        scale = (portfolio * GROSS_CAP) / total_desired
+    deployed = 0.0
+    for s in setups:
+        s["position_value"] *= scale
+        s["shares"] = s["position_value"] / s["price"] if s["price"] > 0 else 0
+        if not s["kelly"]["no_trade"]:
+            deployed += s["position_value"]
+
+    n_live = sum(1 for s in setups if not s["kelly"]["no_trade"])
+    st.markdown(
+        f'<div style="font-size:11px;color:#8b93a7;margin-bottom:8px">'
+        f'Deployed <b style="color:#e6e9f0">{deployed / portfolio * 100:.0f}%</b> of '
+        f'${portfolio:,.0f} across <b style="color:#e6e9f0">{n_live}</b> positions · '
+        f'gross cap {GROSS_CAP * 100:.0f}%{" · scaled to fit" if scale < 1 else ""} · '
+        f'stops are volatility-scaled.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Pass 3: render ────────────────────────────────────────────────────────
+    for s in setups:
+        r = s["r"]; ticker = s["ticker"]; direction = s["direction"]
+        confidence = s["confidence"]; price = s["price"]
+        stop = s["stop"]; target = s["target"]; stop_pct = s["stop_pct"]
+        action_label = s["action_label"]; action_color = s["action_color"]
+        kelly = s["kelly"]; position_value = s["position_value"]; shares = s["shares"]
+        pct_port = position_value / portfolio * 100 if portfolio else 0
+
         strategies = r.get("strategies") or []
-        strat_names = ", ".join(s.get("name", "") for s in strategies[:2]) if strategies else None
-
-        from _components import TICKER_META, get_logo_url
+        strat_names = ", ".join(x.get("name", "") for x in strategies[:2]) if strategies else None
         meta = TICKER_META.get(ticker, {})
         name = meta.get("name", ticker)
         logo_url = get_logo_url(ticker)
@@ -349,7 +412,7 @@ def _render_todays_setups():
                 cols[5].markdown(
                     f"<div style='font-family:IBM Plex Mono,monospace;font-weight:600'>${position_value:,.0f}</div>"
                     f"<div style='font-size:10px;color:#8b93a7'>{shares:.1f} sh · "
-                    f"{kelly['position_pct']:.1f}% port · ¼Kelly</div>",
+                    f"{pct_port:.1f}% port · ¼Kelly</div>",
                     unsafe_allow_html=True,
                 )
             with cols[6]:
