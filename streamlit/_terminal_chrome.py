@@ -119,49 +119,92 @@ def _render_sidebar_nav(current_page: str = "") -> None:
                 st.caption("Status unavailable")
 
 
-# Always-visible tape tickers — global + US + crypto pulse
-TAPE_SYMBOLS = (
-    "^GSPC", "^IXIC", "^DJI", "^VIX",
-    "^FTSE", "^GDAXI", "^N225", "^HSI",
-    "DX-Y.NYB", "EURUSD=X", "USDJPY=X",
-    "GC=F", "CL=F",
-    "BTC-USD", "ETH-USD",
-)
+# ── Tape configuration ────────────────────────────────────────────────────────
 
-TAPE_LABELS = {
-    "^GSPC":    "S&P",     "^IXIC":   "NDX",    "^DJI":    "DOW",
-    "^VIX":     "VIX",
-    "^FTSE":    "FTSE",    "^GDAXI":  "DAX",    "^N225":   "NIK",   "^HSI":    "HSI",
-    "DX-Y.NYB": "DXY",     "EURUSD=X":"EUR",    "USDJPY=X":"JPY",
-    "GC=F":     "GOLD",    "CL=F":    "OIL",
-    "BTC-USD":  "BTC",     "ETH-USD": "ETH",
+# Market type groups: (display_label, db_type_key, accent_color)
+TAPE_GROUPS = [
+    ("INDICES",    "index",     "#b47cf5"),
+    ("EQUITIES",   "equity",    "#4da6ff"),
+    ("FOREX",      "forex",     "#e8a435"),
+    ("CRYPTO",     "crypto",    "#18d4a8"),
+    ("COMMOD",     "commodity", "#f07030"),
+    ("BONDS",      "bond",      "#26c2d6"),
+]
+
+# yfinance fallback — fires only when Supabase has no market data
+_YF_FALLBACK = {
+    "index":     [("^GSPC","S&P"),("^IXIC","NDX"),("^DJI","DOW"),("^VIX","VIX"),
+                  ("^FTSE","FTSE"),("^GDAXI","DAX"),("^N225","NIK"),("^HSI","HSI")],
+    "forex":     [("EURUSD=X","EUR"),("USDJPY=X","JPY"),("GBPUSD=X","GBP"),("DX-Y.NYB","DXY")],
+    "crypto":    [("BTC-USD","BTC"),("ETH-USD","ETH"),("SOL-USD","SOL"),("BNB-USD","BNB")],
+    "commodity": [("GC=F","GOLD"),("CL=F","OIL"),("SI=F","SILVER"),("NG=F","NAT GAS")],
+    "equity":    [("NVDA","NVDA"),("AAPL","AAPL"),("MSFT","MSFT"),("GOOGL","GOOGL"),
+                  ("META","META"),("AMZN","AMZN"),("TSLA","TSLA")],
+    "bond":      [("^TNX","10Y"),("^TYX","30Y"),("^IRX","3M")],
 }
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def _fetch_tape() -> dict:
-    """Real-time tape pulse via Finnhub if available, else yfinance."""
-    out = {}
-    # Try Finnhub first for stock indices  / yfinance for futures + indices
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_tape_grouped() -> dict[str, list]:
+    """Fetch all pipeline market data from Supabase grouped by type.
+
+    Falls back to yfinance if Supabase has no market data.
+    Returns dict[type_key -> list of {ticker, label, price, change}].
+    """
+    groups: dict[str, list] = {g[1]: [] for g in TAPE_GROUPS}
+
+    # ── Primary: Supabase pipeline markets ────────────────────────────────────
+    try:
+        from _data import load_market_snapshots
+        rows, status = load_market_snapshots(limit=300)
+        if rows:
+            seen: set[str] = set()
+            for r in rows:
+                tk = (r.get("ticker") or "").strip()
+                if not tk or tk in seen:
+                    continue
+                seen.add(tk)
+                mtype = (r.get("type") or "equity").lower()
+                price = r.get("price") or r.get("last_price") or 0
+                chg   = r.get("change_pct") or r.get("pct_change") or 0
+                name  = r.get("name") or tk
+                # Short display label: use ticker, strip common suffixes
+                lbl = tk.replace("-USD","").replace("=X","").replace("=F","")[:8]
+                if mtype in groups:
+                    groups[mtype].append({
+                        "ticker": tk, "label": lbl,
+                        "price": float(price), "change": float(chg),
+                        "name": name,
+                    })
+            # If we got data from Supabase, return it
+            if any(groups.values()):
+                return groups
+    except Exception:
+        pass
+
+    # ── Fallback: yfinance for the curated symbol list ─────────────────────────
     try:
         import yfinance as yf
-        for sym in TAPE_SYMBOLS:
-            try:
-                t = yf.Ticker(sym).history(period="5d", interval="1d", auto_adjust=True)
-                if t.empty or len(t) < 2:
+        for mtype, syms in _YF_FALLBACK.items():
+            for sym, lbl in syms:
+                try:
+                    t = yf.Ticker(sym).history(period="5d", interval="1d", auto_adjust=True)
+                    if t.empty or len(t) < 2:
+                        continue
+                    last = float(t["Close"].iloc[-1])
+                    prev = float(t["Close"].iloc[-2])
+                    groups[mtype].append({
+                        "ticker": sym, "label": lbl,
+                        "price": last,
+                        "change": (last / prev - 1) * 100 if prev else 0,
+                        "name": lbl,
+                    })
+                except Exception:
                     continue
-                last = float(t["Close"].iloc[-1])
-                prev = float(t["Close"].iloc[-2])
-                out[sym] = {
-                    "label":  TAPE_LABELS.get(sym, sym),
-                    "price":  last,
-                    "change": (last / prev - 1) * 100 if prev else 0,
-                }
-            except Exception:
-                continue
     except ImportError:
         pass
-    return out
+
+    return groups
 
 
 def render_chrome(current_page: str = "") -> None:
@@ -174,41 +217,89 @@ def render_chrome(current_page: str = "") -> None:
     _render_command_bar()
 
 
+def _fmt_price(price: float, mtype: str) -> str:
+    """Format price compactly for the tape."""
+    if price == 0:
+        return "—"
+    if mtype == "crypto" and price < 1:
+        return f"${price:.4f}"
+    if mtype in ("forex",):
+        return f"{price:.4f}"
+    if price >= 10_000:
+        return f"{price:,.0f}"
+    if price >= 1_000:
+        return f"{price:,.1f}"
+    if price >= 100:
+        return f"{price:.2f}"
+    return f"{price:.3f}"
+
+
 def _render_tape():
-    tape = _fetch_tape()
-    if not tape:
+    groups = _fetch_tape_grouped()
+    if not any(groups.values()):
         return
 
-    pieces = []
-    for sym in TAPE_SYMBOLS:
-        d = tape.get(sym)
-        if not d:
+    # Build one pass of ticker HTML — groups separated by colored pills
+    items_html = []
+    for lbl, mtype, color in TAPE_GROUPS:
+        tickers = groups.get(mtype, [])
+        if not tickers:
             continue
-        color = "#00d68f" if d["change"] >= 0 else "#ff5773"
-        arrow = "▲" if d["change"] >= 0 else "▼"
-        # Format price compactly — major indices use no decimals, FX 4-5 decimals
-        if d["price"] >= 1000:
-            price_str = f"{d['price']:,.0f}"
-        elif d["price"] >= 100:
-            price_str = f"{d['price']:,.2f}"
-        elif d["price"] >= 1:
-            price_str = f"{d['price']:.3f}"
-        else:
-            price_str = f"{d['price']:.5f}"
-
-        pieces.append(
-            f'<span style="margin-right:18px;font-family:IBM Plex Mono,monospace">'
-            f'<b style="color:#8b93a7;font-size:10px;letter-spacing:.06em">{d["label"]}</b> '
-            f'<span style="color:#e6e9f0;font-weight:600">{price_str}</span> '
-            f'<span style="color:{color};font-size:11px">{arrow}{abs(d["change"]):.2f}%</span>'
-            f'</span>'
+        # Group separator pill
+        items_html.append(
+            f'<span style="margin:0 14px 0 6px;font-size:9px;font-weight:800;'
+            f'letter-spacing:.14em;color:{color};background:{color}18;'
+            f'border:1px solid {color}44;padding:1px 6px;border-radius:3px;'
+            f'vertical-align:middle;flex-shrink:0">{lbl}</span>'
         )
+        for t in tickers:
+            chg   = t["change"]
+            tc    = "#00d68f" if chg >= 0 else "#ff5773"
+            arrow = "▲" if chg >= 0 else "▼"
+            price_str = _fmt_price(t["price"], mtype)
+            items_html.append(
+                f'<span style="margin-right:20px;white-space:nowrap;flex-shrink:0;'
+                f'font-family:IBM Plex Mono,monospace;font-size:12px">'
+                f'<b style="color:#c6cae2;letter-spacing:.03em">{t["label"]}</b>'
+                f'<span style="color:#5a6378;margin:0 3px">·</span>'
+                f'<span style="color:#e6e9f0;font-weight:600">{price_str}</span>'
+                f'<span style="color:{tc};font-size:11px;margin-left:4px">'
+                f'{arrow}{abs(chg):.2f}%</span>'
+                f'</span>'
+            )
+
+    if not items_html:
+        return
+
+    # Total items drives animation speed: ~0.65s per item, min 30s
+    n_items = sum(len(groups.get(g[1], [])) for g in TAPE_GROUPS)
+    duration = max(30, int(n_items * 0.65))
+
+    one_pass = "".join(items_html)
+    # Duplicate for seamless loop (CSS translates -50%)
+    inner = one_pass + one_pass
 
     st.markdown(
-        f'<div class="ticker-tape" style="background:#0c0c18;border-bottom:1px solid #1f2937;'
-        f'padding:6px 14px;margin:-1rem -1rem 0.5rem -1rem;'
-        f'font-size:12px;overflow-x:auto;white-space:nowrap">'
-        f'{"".join(pieces)}'
+        f'<style>'
+        f'@keyframes intl-tape {{'
+        f'  0%   {{ transform: translateX(0); }}'
+        f'  100% {{ transform: translateX(-50%); }}'
+        f'}}'
+        f'.intl-tape-inner {{'
+        f'  display:flex;align-items:center;'
+        f'  animation:intl-tape {duration}s linear infinite;'
+        f'  will-change:transform;'
+        f'}}'
+        f'.intl-tape-inner:hover {{ animation-play-state:paused; }}'
+        f'</style>'
+        f'<div style="background:#04040c;border-bottom:1px solid #1a1a2e;'
+        f'height:28px;overflow:hidden;position:relative;'
+        f'margin:-1rem -1rem 0.5rem -1rem;display:flex;align-items:center">'
+        f'<div style="position:absolute;left:0;top:0;bottom:0;width:40px;z-index:2;'
+        f'background:linear-gradient(to right,#04040c 50%,transparent)"></div>'
+        f'<div style="position:absolute;right:0;top:0;bottom:0;width:40px;z-index:2;'
+        f'background:linear-gradient(to left,#04040c 50%,transparent)"></div>'
+        f'<div class="intl-tape-inner" style="padding-left:40px">{inner}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
