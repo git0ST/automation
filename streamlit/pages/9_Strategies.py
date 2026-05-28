@@ -37,13 +37,11 @@ HORIZON_HELP = {
 @st.cache_data(ttl=900, show_spinner=False)
 def scan_with_strategies(tickers: tuple) -> list[dict]:
     """Reuse the opportunity scanner output + map each to its strategies."""
-    # Import the scan from pages/6_Opportunities.py
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "opp", Path(__file__).parent / "6_Opportunities.py")
-    opp_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(opp_mod)
-    results = opp_mod.scan_universe(tickers)
+    # Import the scan from the shared side-effect-free module (NOT by exec'ing
+    # the Opportunities page, which would re-run its chrome/widgets inside this
+    # cached function → CachedWidgetWarning + duplicate-key crash).
+    from _opportunity_scan import scan_universe
+    results = scan_universe(tickers)
 
     # Enrich each with strategy matches + sector
     enriched = []

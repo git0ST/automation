@@ -316,14 +316,17 @@ def _render_price_chart(ticker, ohlc, period):
 
         fig.update_layout(
             height=520,
-            margin=dict(l=10, r=10, t=10, b=10),
+            # small floor margins; automargin (below) expands to fit axis labels/titles
+            margin=dict(l=8, r=12, t=10, b=8),
             paper_bgcolor=COLORS["bg"], plot_bgcolor=COLORS["bg"],
             font=dict(color=COLORS["text"], family="Inter"),
             xaxis_rangeslider_visible=False,
-            xaxis=dict(gridcolor=COLORS["border"]),
-            xaxis2=dict(gridcolor=COLORS["border"]),
-            yaxis=dict(gridcolor=COLORS["border"], title="Price ($)"),
-            yaxis2=dict(gridcolor=COLORS["border"], title="Volume"),
+            xaxis=dict(gridcolor=COLORS["border"], automargin=True),
+            xaxis2=dict(gridcolor=COLORS["border"], automargin=True),
+            yaxis=dict(gridcolor=COLORS["border"], automargin=True,
+                       title=dict(text="Price ($)", standoff=8), tickformat="$,.0f"),
+            yaxis2=dict(gridcolor=COLORS["border"], automargin=True,
+                        title=dict(text="Volume", standoff=8), tickformat=".2s"),
             legend=dict(bgcolor=COLORS["surface"], bordercolor=COLORS["border"]),
             hovermode="x unified",
         )

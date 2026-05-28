@@ -369,9 +369,11 @@ def _render_risk_tab(tab):
                         ))
                         fig.update_layout(
                             height=max(300, 45 * len(corr_df)),
-                            margin=dict(l=10, r=10, t=10, b=10),
+                            margin=dict(l=8, r=10, t=10, b=8),
                             paper_bgcolor=COLORS["bg"], plot_bgcolor=COLORS["bg"],
                             font=dict(color=COLORS["text"]),
+                            xaxis=dict(automargin=True),
+                            yaxis=dict(automargin=True),
                         )
                         st.plotly_chart(fig, use_container_width=True, theme=None)
                     except Exception as e:
@@ -446,10 +448,11 @@ def _render_factor_tab(tab):
                 height=300 + 30 * len(df),
                 paper_bgcolor=COLORS["bg"], plot_bgcolor=COLORS["bg"],
                 font=dict(color=COLORS["text"]),
-                margin=dict(l=10, r=10, t=20, b=10),
+                margin=dict(l=8, r=16, t=20, b=8),
                 showlegend=False,
-                xaxis=dict(gridcolor=COLORS["border"], title="% of portfolio"),
-                yaxis=dict(title=""),
+                xaxis=dict(gridcolor=COLORS["border"], automargin=True,
+                           title=dict(text="% of portfolio", standoff=8)),
+                yaxis=dict(title="", automargin=True),
             )
             st.plotly_chart(fig, use_container_width=True, theme=None)
         except Exception:

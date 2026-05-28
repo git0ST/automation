@@ -310,12 +310,13 @@ def _render_compare_chart(data: dict, period: str):
                       annotation_text="Start (100)", annotation_position="right")
         fig.update_layout(
             height=450,
-            margin=dict(l=10, r=10, t=20, b=10),
+            margin=dict(l=8, r=12, t=20, b=8),
             paper_bgcolor=COLORS["bg"],
             plot_bgcolor=COLORS["bg"],
             font=dict(color=COLORS["text"], family="Inter"),
-            xaxis=dict(gridcolor=COLORS["border"], showgrid=True),
-            yaxis=dict(gridcolor=COLORS["border"], title="Index (100 = start)"),
+            xaxis=dict(gridcolor=COLORS["border"], showgrid=True, automargin=True),
+            yaxis=dict(gridcolor=COLORS["border"], automargin=True,
+                       title=dict(text="Index (100 = start)", standoff=8)),
             legend=dict(bgcolor=COLORS["surface"], bordercolor=COLORS["border"], borderwidth=1),
             hovermode="x unified",
         )

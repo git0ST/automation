@@ -222,12 +222,12 @@ def _render_correlation_heatmap(corr: dict):
     ))
     fig.update_layout(
         height=max(350, 50 * len(corr_df)),
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=8, r=10, t=10, b=8),
         paper_bgcolor=COLORS["bg"],
         plot_bgcolor=COLORS["bg"],
         font=dict(color=COLORS["text"], family="Inter"),
-        xaxis=dict(side="bottom", gridcolor=COLORS["border"]),
-        yaxis=dict(autorange="reversed", gridcolor=COLORS["border"]),
+        xaxis=dict(side="bottom", gridcolor=COLORS["border"], automargin=True),
+        yaxis=dict(autorange="reversed", gridcolor=COLORS["border"], automargin=True),
     )
     st.plotly_chart(fig, use_container_width=True, theme=None)
     st.caption("ρ near 1 = correlated (less diversification). Near -1 = inverse correlation.")
