@@ -80,12 +80,20 @@ def correlate_outcomes(batch_limit: int = 200) -> dict:
                     skipped += 1
                     continue
                 pred_dt = datetime.fromisoformat(r["predicted_at"].replace("Z", "+00:00"))
-                # Find closes at +1d, +3d, +7d, +30d from prediction
-                future = closes[closes.index.to_pydatetime() >= pred_dt.replace(tzinfo=None)
-                                if not closes.index.tz else closes.index >= pred_dt]
-                # Defensive: fall back to positional indexing if tz handling differs
+                # Robust date alignment: normalize the price index to tz-naive
+                # UTC, then keep only closes on/after the prediction timestamp.
+                # (The old fallback indexed into the MIDDLE of the series on any
+                # tz mismatch, fabricating bogus returns — removed.)
+                idx = closes.index
+                if getattr(idx, "tz", None) is not None:
+                    idx_cmp = idx.tz_convert("UTC").tz_localize(None)
+                else:
+                    idx_cmp = idx
+                pred_naive = pred_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                future = closes[idx_cmp >= pred_naive]
                 if len(future) == 0:
-                    future = closes.iloc[len(closes) // 2:]
+                    skipped += 1
+                    continue  # prediction newer than all fetched bars
 
                 vals = future.values
                 ret_1d  = (vals[0]  / base - 1) * 100 if len(vals) >= 1  else None

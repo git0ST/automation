@@ -483,6 +483,27 @@ async def run_pipeline(
         except Exception as e:
             print(f"  [14] Data lake snapshot skipped: {e}")
 
+        # [15] Self-improvement loop — score past predictions against realized
+        # outcomes, then re-tune model weights. THIS closes the learning loop:
+        # without it, predictions are logged but never measured, so calibration,
+        # hit-rate tracking and adaptive weighting all have zero data to learn
+        # from. Runs every pipeline pass; outcomes fill in as time elapses
+        # (return_1d next day, return_7d after a week, …). Weights auto-activate
+        # only once ≥50 settled predictions exist (guarded in run_learning_cycle).
+        try:
+            from shared.learning_loop import run_learning_cycle
+            print(f"  [15] Self-improvement: correlating outcomes + tuning weights…")
+            learn = run_learning_cycle(auto_activate=True)
+            corr = learn.get("correlation") or {}
+            tuned = learn.get("tuning") or {}
+            print(f"    Learning: {corr.get('updated', 0)} outcomes correlated "
+                  f"({corr.get('processed', 0)} processed) · "
+                  f"trained_on={tuned.get('trained_on', 0)} · "
+                  f"weights {'ACTIVATED' if learn.get('activated') else 'unchanged'}")
+            store_stats["learning"] = learn
+        except Exception as e:
+            print(f"  [15] Self-improvement cycle skipped: {e}")
+
     return {
         "items":        scored,
         "market_data":  market_data,

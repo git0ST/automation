@@ -208,14 +208,41 @@ def run_scan(tickers: Optional[list[str]] = None,
             errors += 1
             continue
 
-    # Persist
+    # Persist the snapshot for instant Streamlit reads
     written = _write_snapshot(rows)
+
+    # Log high-conviction, directional setups to the predictions table so the
+    # full 99-ticker scan feeds the self-improvement loop (each gets correlated
+    # with realized returns and calibrated over time). This is the system's
+    # richest, most consistent prediction source — ~3 logged snapshots/day.
+    logged = 0
+    try:
+        from shared.prediction_tracker import log_prediction
+        for r in rows:
+            if (r.get("confidence") or 0) >= 55 and r.get("direction") not in (None, "neutral"):
+                if log_prediction(
+                    ticker=r["ticker"],
+                    direction=r["direction"],
+                    confidence_pct=r["confidence"],
+                    price=r["price"],
+                    source_page="opportunity_runner",
+                    components=r.get("components"),
+                    quant_score=r.get("quant_score"),
+                    quant_grade=r.get("quant_grade"),
+                    regime_at_pred=current_regime,
+                    srs_at_pred=current_srs,
+                ):
+                    logged += 1
+    except Exception:
+        pass
+
     return {
-        "scan_id":   scan_id,
-        "n_scanned": len(rows),
-        "n_written": written,
-        "errors":    errors,
-        "finnhub":   finnhub_ready,
+        "scan_id":     scan_id,
+        "n_scanned":   len(rows),
+        "n_written":   written,
+        "n_predicted": logged,
+        "errors":      errors,
+        "finnhub":     finnhub_ready,
     }
 
 
