@@ -25,7 +25,8 @@ st.set_page_config(page_title="Opportunities · INTL", page_icon="🎯", layout=
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _theme              import apply_theme, COLORS, status_pill
 from _stock_analysis     import (technical_signal, sentiment_signal, analyst_signal,
-                                  sector_signal, vol_signal, composite_prediction)
+                                  sector_signal, vol_signal, composite_prediction,
+                                  classify_avoidance)
 from _advanced_technicals import compute_all_technicals
 from _quant_score        import compute_quant_score
 from _components         import TICKER_META
@@ -273,13 +274,15 @@ def scan_universe(tickers: tuple, period: str = "1y",
                 "rsi_14":      round(rsi_14, 1),
                 "vs_sma_50":   round((price / sma_50  - 1) * 100, 2) if sma_50  else None,
                 "vs_sma_200":  round((price / sma_200 - 1) * 100, 2) if sma_200 else None,
-                "direction":   prediction["direction"],
-                "confidence":  prediction["confidence"],
-                "rationale":   prediction["rationale"],
-                "components":  prediction["components"],
-                "quant_score": quant["composite_score"],
-                "quant_grade": quant["composite_grade"],
-                "factors":     quant["factors"],
+                "direction":     prediction["direction"],
+                "confidence":    prediction["confidence"],
+                "rationale":     prediction["rationale"],
+                "components":    prediction["components"],
+                "horizon":       prediction.get("horizon"),
+                "horizon_label": prediction.get("horizon_label"),
+                "quant_score":   quant["composite_score"],
+                "quant_grade":   quant["composite_grade"],
+                "factors":       quant["factors"],
             })
         except Exception:
             continue
@@ -426,6 +429,7 @@ def main():
                     regime_at_pred=current_regime,
                     srs_at_pred=current_srs,
                     sector=meta_sector,
+                    horizon=r.get("horizon"),
                 )
                 if ok:
                     logged += 1
@@ -484,9 +488,10 @@ def main():
 
     st.divider()
 
-    # Tabs: Top Bullish | Top Bearish | All | Quant Leaders
-    tab_bull, tab_bear, tab_quant, tab_all = st.tabs([
-        "🚀 Top Bullish", "📉 Top Bearish", "🏆 Quant Leaders", "📋 All Setups"
+    # Tabs: Top Bullish | Top Bearish | Quant Leaders | Avoid/Reduce | All
+    tab_bull, tab_bear, tab_quant, tab_avoid, tab_all = st.tabs([
+        "🚀 Top Bullish", "📉 Top Bearish", "🏆 Quant Leaders",
+        "🚫 Avoid / Reduce", "📋 All Setups"
     ])
 
     with tab_bull:
@@ -508,8 +513,80 @@ def main():
                    "Profitability + Momentum + Revisions). Direction-agnostic.")
         _render_opportunity_list(quant_sorted[:15], emphasis="quant")
 
+    with tab_avoid:
+        # Screened across the FULL scan (not the bullish-confidence filter) so
+        # nothing dangerous is hidden. SRS is the live systemic-risk tape.
+        _render_avoid_list(results, current_srs)
+
     with tab_all:
         _render_full_table(filtered)
+
+
+def _render_avoid_list(results: list[dict], srs: float | None):
+    """The 'where NOT to invest' list — names flagged AVOID or REDUCE.
+
+    Screens the full scan with classify_avoidance(): fade bearish conviction,
+    avoid weak/deteriorating fundamentals, don't chase overbought weak names,
+    and de-risk fresh longs when the systemic-risk tape is hostile.
+    """
+    st.caption("Risk screen across the **entire** scan (independent of the "
+               "confidence filter). These are names to **avoid buying** or "
+               "**trim/handle with caution** — not trade ideas.")
+
+    assessed = []
+    for r in results:
+        a = classify_avoidance(
+            direction=r.get("direction", "neutral"),
+            confidence=r.get("confidence", 0),
+            quant_score=r.get("quant_score"),
+            quant_grade=r.get("quant_grade"),
+            rsi_14=r.get("rsi_14"),
+            srs=srs,
+        )
+        if a["level"] != "OK":
+            assessed.append((a, r))
+
+    if not assessed:
+        st.success("✅ Nothing flagged — no AVOID/REDUCE names in the current scan.")
+        return
+
+    # Most severe first
+    assessed.sort(key=lambda x: -x[0]["severity"])
+    n_avoid = sum(1 for a, _ in assessed if a["level"] == "AVOID")
+    n_reduce = sum(1 for a, _ in assessed if a["level"] == "REDUCE")
+    st.markdown(f"**{n_avoid}** flagged 🔴 AVOID · **{n_reduce}** flagged 🟠 REDUCE")
+
+    for a, r in assessed:
+        is_avoid = a["level"] == "AVOID"
+        badge_color = "#ff5773" if is_avoid else "#ff8800"
+        badge = "🔴 AVOID" if is_avoid else "🟠 REDUCE"
+        meta = TICKER_META.get(r["ticker"], {})
+        name = meta.get("name", r["ticker"])
+        reasons = " · ".join(a["reasons"]) or "—"
+        c_row, c_btn = st.columns([11, 1])
+        with c_row:
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;'
+                f'background:#131825;border:1px solid {badge_color}44;border-left:3px solid '
+                f'{badge_color};border-radius:6px;margin-bottom:6px">'
+                f'  <div style="min-width:62px"><span style="font-weight:700;font-size:13px;'
+                f'color:#e6e9f0">{r["ticker"]}</span></div>'
+                f'  <div style="min-width:74px"><span style="font-size:10px;font-weight:700;'
+                f'letter-spacing:.05em;color:{badge_color}">{badge}</span></div>'
+                f'  <div style="flex:1;min-width:0;color:#8b93a7;font-size:12px;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+                f'<b style="color:#c6cae2">{name}</b> — {reasons}</div>'
+                f'  <div style="font-family:IBM Plex Mono,monospace;font-size:12px;'
+                f'color:#8b93a7">Q {r.get("quant_grade","?")} · '
+                f'{r.get("confidence",0):.0f}%</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with c_btn:
+            if st.button("↗", key=f"avoid_{r['ticker']}", help=f"Inspect {r['ticker']}",
+                         use_container_width=True):
+                st.session_state["detail_ticker"] = r["ticker"]
+                st.switch_page("pages/5_Stock_Detail.py")
 
 
 def _render_opportunity_list(opportunities: list[dict], emphasis: str = "bullish"):
@@ -530,10 +607,12 @@ def _render_opportunity_list(opportunities: list[dict], emphasis: str = "bullish
         meta = TICKER_META.get(r["ticker"], {})
         sector = meta.get("sector") or r.get("sector") or "—"
 
+        hz = r.get("horizon_label")
+        hz_str = f" · ⏱ {hz}" if hz else ""
         with st.expander(
             f"**{r['ticker']}** · {meta.get('name', r['ticker'])} · "
             f"{r['direction'].upper()} · {r['confidence']:.0f}% conf · "
-            f"Quant {r['quant_grade']}",
+            f"Quant {r['quant_grade']}{hz_str}",
             expanded=False,
         ):
             c1, c2, c3, c4 = st.columns(4)
@@ -546,6 +625,9 @@ def _render_opportunity_list(opportunities: list[dict], emphasis: str = "bullish
             c4.metric("Sector", sector, delta_color="off")
 
             st.markdown(f"**Rationale:** {r['rationale']}")
+            if r.get("horizon_label"):
+                st.caption(f"⏱ Suggested holding horizon: **{r['horizon_label']}** "
+                           f"({r.get('horizon', '')}) — set by which signal layers drive the call.")
 
             # Factor grades
             f = r["factors"]

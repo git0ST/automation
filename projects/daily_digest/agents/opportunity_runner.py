@@ -195,6 +195,7 @@ def run_scan(tickers: Optional[list[str]] = None,
                 "rationale":  pred.get("rationale"),
                 "components": pred.get("components"),
                 "tech_votes": pred.get("tech_votes"),
+                "horizon":    pred.get("horizon"),   # for logging; stripped before snapshot write
                 "quant_score": quant["composite_score"],
                 "quant_grade": quant["composite_grade"],
                 "factors":     quant["factors"],
@@ -208,8 +209,10 @@ def run_scan(tickers: Optional[list[str]] = None,
             errors += 1
             continue
 
-    # Persist the snapshot for instant Streamlit reads
-    written = _write_snapshot(rows)
+    # Persist the snapshot for instant Streamlit reads. 'horizon' is kept on the
+    # row only for prediction logging below — strip it so we never insert a
+    # column that may not exist in opportunity_snapshots.
+    written = _write_snapshot([{k: v for k, v in r.items() if k != "horizon"} for r in rows])
 
     # Log high-conviction, directional setups to the predictions table so the
     # full 99-ticker scan feeds the self-improvement loop (each gets correlated
@@ -231,6 +234,7 @@ def run_scan(tickers: Optional[list[str]] = None,
                     quant_grade=r.get("quant_grade"),
                     regime_at_pred=current_regime,
                     srs_at_pred=current_srs,
+                    horizon=r.get("horizon"),
                 ):
                     logged += 1
     except Exception:

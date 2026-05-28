@@ -264,6 +264,52 @@ def position_sizing(stop_pct: float, conviction: float = 0.5,
     }
 
 
+def kelly_position_sizing(win_prob: float, payoff_ratio: float = 2.0,
+                          portfolio_value: float = 100_000,
+                          stop_pct: float = 0.04,
+                          kelly_fraction: float = 0.5,
+                          max_position_pct: float = 0.15) -> dict:
+    """Size a position from EDGE using fractional Kelly.
+
+    The growth-optimal bet size given a win probability and payoff. We feed it
+    the model's *calibrated* win probability so size tracks real, measured edge
+    rather than a flat rule.
+
+    Args:
+        win_prob:       calibrated P(trade correct), 0-1 (confidence/100).
+        payoff_ratio:   b = reward/risk (e.g. 2.0 for a 2:1 target/stop).
+        kelly_fraction: fraction of full Kelly to bet (0.5 = half-Kelly — the
+                        standard professional haircut to cut drawdown/ruin risk).
+        max_position_pct: hard cap on single-name exposure.
+
+    Full Kelly fraction of capital: f* = (p·b − q) / b, q = 1−p.
+    When edge ≤ 0 (p ≤ 1/(1+b)) Kelly returns 0 → NO TRADE: the math itself
+    tells you not to invest. Returns sizing + edge + a no_trade flag.
+    """
+    p = max(0.0, min(1.0, win_prob))
+    q = 1.0 - p
+    b = max(payoff_ratio, 0.01)
+    full_kelly = (p * b - q) / b
+    sized = max(0.0, full_kelly) * kelly_fraction
+    position_pct = min(sized, max_position_pct)
+    position_value = portfolio_value * position_pct
+    risk_amount = position_value * stop_pct if stop_pct > 0 else 0.0
+    edge = p * b - q                       # expected units won per unit risked
+    breakeven = 1.0 / (1.0 + b)            # win-rate needed just to break even
+    return {
+        "position_value":  round(position_value, 2),
+        "position_pct":    round(position_pct * 100, 2),
+        "risk_amount":     round(risk_amount, 2),
+        "full_kelly_pct":  round(full_kelly * 100, 1),
+        "sized_kelly_pct": round(sized * 100, 1),
+        "win_prob":        round(p * 100, 1),
+        "breakeven_pct":   round(breakeven * 100, 1),
+        "payoff_ratio":    round(b, 2),
+        "edge":            round(edge, 3),
+        "no_trade":        sized <= 0,
+    }
+
+
 def compute_levels(price: float, atr_val: float,
                    stop_mult: float, target_mult: float,
                    direction: str = "long") -> dict:

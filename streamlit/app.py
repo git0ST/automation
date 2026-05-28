@@ -233,8 +233,10 @@ def _render_todays_setups():
             icon="⚠️",
         )
 
-    st.caption("Auto-scanned every 30 min by the pipeline cron. "
-               "Entry/stop/target use 2× ATR. Click **Open** for full analysis.")
+    st.caption("Auto-scanned by the pipeline cron. Entry/stop/target use 2×/4× ATR "
+               "(R/R 2:1). Size = **¼-Kelly on the calibrated win-rate** — it grows "
+               "with measured edge and shows **SKIP** when there isn't any. "
+               "Click **Open** for full analysis.")
 
     # Portfolio value input (session-persisted)
     if "portfolio_value" not in st.session_state:
@@ -277,9 +279,19 @@ def _render_todays_setups():
             action_label = "SHORT"
             action_color = "#ff5773"
 
-        # Position sizing: risk 1% of portfolio scaled by conviction
-        max_risk = portfolio * 0.01 * (0.5 + confidence / 100)
-        position_value = min(max_risk / stop_pct, portfolio * 0.15)
+        # Position sizing: fractional-Kelly on the CALIBRATED win probability.
+        # payoff b = target/stop distance = 2:1 here. Size tracks measured edge;
+        # if edge ≤ 0 Kelly returns 0 → the model says don't take the trade.
+        from _strategy_engine import kelly_position_sizing
+        kelly = kelly_position_sizing(
+            win_prob=confidence / 100,
+            payoff_ratio=(target_pct / stop_pct) if stop_pct else 2.0,
+            portfolio_value=portfolio,
+            stop_pct=stop_pct,
+            kelly_fraction=0.25,   # quarter-Kelly: conservative while calibration
+                                   # matures + keeps sizing differentiated below the cap
+        )
+        position_value = kelly["position_value"]
         shares = position_value / price if price > 0 else 0
 
         # Strategy names (if any)
@@ -325,12 +337,21 @@ def _render_todays_setups():
                 f"<div style='font-size:10px;color:#8b93a7'>Target (R/R 2:1)</div>",
                 unsafe_allow_html=True,
             )
-            cols[5].markdown(
-                f"<div style='font-family:IBM Plex Mono,monospace;font-weight:600'>${position_value:,.0f}</div>"
-                f"<div style='font-size:10px;color:#8b93a7'>{shares:.1f} sh · "
-                f"{position_value/portfolio*100:.1f}% port</div>",
-                unsafe_allow_html=True,
-            )
+            if kelly["no_trade"]:
+                cols[5].markdown(
+                    f"<div style='font-family:IBM Plex Mono,monospace;font-weight:600;"
+                    f"color:#ff8800'>SKIP</div>"
+                    f"<div style='font-size:10px;color:#8b93a7'>no edge · "
+                    f"need &gt;{kelly['breakeven_pct']:.0f}%</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                cols[5].markdown(
+                    f"<div style='font-family:IBM Plex Mono,monospace;font-weight:600'>${position_value:,.0f}</div>"
+                    f"<div style='font-size:10px;color:#8b93a7'>{shares:.1f} sh · "
+                    f"{kelly['position_pct']:.1f}% port · ¼Kelly</div>",
+                    unsafe_allow_html=True,
+                )
             with cols[6]:
                 if st.button("Open", key=f"setup_{ticker}", use_container_width=True):
                     st.session_state["detail_ticker"] = ticker

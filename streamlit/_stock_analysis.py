@@ -315,6 +315,87 @@ def _apply_calibration(direction: str, raw_conf: float) -> tuple[float, str | No
     return calibrated, note
 
 
+# ── Holding-horizon inference ────────────────────────────────────────────────
+# Which signal layer drives the call implies the natural holding period:
+# fast technicals/news decay quickly (short); fundamentals/quality persist (long).
+_SIGNAL_TENOR = {"technical": 1.0, "sentiment": 1.0, "sector": 2.0,
+                 "analyst": 3.0, "quant": 3.0}
+_HORIZON_LABEL = {"short": "1–2 weeks", "medium": "3–8 weeks", "long": "3–6 months"}
+# Which stored outcome window best scores each horizon (tracker has 1d/7d/30d).
+_HORIZON_RETURN_KEY = {"short": "return_7d", "medium": "return_7d", "long": "return_30d"}
+
+
+def _infer_horizon(components: list, score: float) -> tuple[str, str]:
+    """Infer the natural holding horizon from which layers drive the call.
+
+    Only signals AGREEING with the directional call set the tenor, weighted by
+    their strength × weight. Technicals/sentiment pull short; analyst/quant
+    (fundamentals) pull long; sector is medium.
+    """
+    num = den = 0.0
+    for name, vote, strength, weight in components:
+        if vote == 0 or (vote > 0) != (score > 0):
+            continue
+        w = strength * weight
+        num += _SIGNAL_TENOR.get(name, 2.0) * w
+        den += w
+    if den == 0:
+        return "medium", _HORIZON_LABEL["medium"]
+    avg = num / den
+    horizon = "short" if avg < 1.6 else "medium" if avg < 2.3 else "long"
+    return horizon, _HORIZON_LABEL[horizon]
+
+
+# ── Avoid / Reduce classification (the "where NOT to invest" layer) ───────────
+
+def classify_avoidance(direction: str, confidence: float,
+                       quant_score: float | None = None,
+                       quant_grade: str | None = None,
+                       rsi_14: float | None = None,
+                       srs: float | None = None) -> dict:
+    """Classify a name as AVOID (don't buy / short candidate), REDUCE
+    (trim / handle with caution) or OK, with plain-English reasons.
+
+    Mirrors how risk-aware desks screen OUT names: fade bearish conviction,
+    avoid deteriorating fundamentals, don't chase overbought weak names, and
+    de-risk fresh longs when the systemic-risk tape is hostile.
+    Returns {level, severity, reasons}.
+    """
+    reasons: list[str] = []
+    severity = 0
+
+    if direction == "bearish":
+        severity += 2 if confidence >= 60 else 1
+        reasons.append(f"Bearish signal ({confidence:.0f}% conf)")
+
+    q_disp = quant_grade or (f"{quant_score:.0f}" if quant_score is not None else "?")
+    if quant_grade in ("D", "F") or (quant_score is not None and quant_score < 35):
+        severity += 2
+        reasons.append(f"Weak fundamentals (quant {q_disp})")
+    elif quant_grade in ("C", "C+") or (quant_score is not None and quant_score < 45):
+        severity += 1
+        reasons.append(f"Below-average fundamentals (quant {q_disp})")
+
+    if rsi_14 is not None and rsi_14 > 75:
+        severity += 1
+        reasons.append(f"Overbought (RSI {rsi_14:.0f})")
+
+    try:
+        if srs is not None and float(srs) >= 65 and direction != "bearish":
+            severity += 1
+            reasons.append(f"Risk-off tape (SRS {float(srs):.0f})")
+    except (TypeError, ValueError):
+        pass
+
+    if severity >= 3 or (direction == "bearish" and confidence >= 65):
+        level = "AVOID"
+    elif severity >= 1:
+        level = "REDUCE"
+    else:
+        level = "OK"
+    return {"level": level, "severity": severity, "reasons": reasons}
+
+
 def composite_prediction(technical: dict, sentiment: dict,
                          analyst: dict, vol: dict,
                          sector: dict | None = None,
@@ -425,6 +506,9 @@ def composite_prediction(technical: dict, sentiment: dict,
 
     confidence = max(0, min(97, confidence))
 
+    # Holding horizon implied by the dominant signal layers
+    horizon, horizon_label = _infer_horizon(components, score)
+
     rationale = _build_rationale(direction, components, vol_regime, tech_votes,
                                  srs=srs, regime=regime, cal_note=cal_note)
 
@@ -438,6 +522,8 @@ def composite_prediction(technical: dict, sentiment: dict,
         "vol_mult":       round(vol_mult, 3),
         "srs_mult":       round(srs_mult, 3),
         "regime":         regime,
+        "horizon":        horizon,
+        "horizon_label":  horizon_label,
         "tech_votes":     tech_votes,
         "rationale":      rationale,
         "calibration":    cal_note,

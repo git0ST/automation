@@ -525,6 +525,9 @@ def _render_prediction(ticker, ohlc, tech, risk, bundle):
         <div style="font-size:13px;color:#8b93a7">
           Vol regime: <b style="color:#e6e9f0">{pred.get('vol_regime', '—').upper()}</b>
         </div>
+        <div style="font-size:13px;color:#8b93a7">
+          ⏱ Horizon: <b style="color:#e6e9f0">{pred.get('horizon_label', '—')}</b>
+        </div>
       </div>
       <div style="background:#0f1422;border-radius:4px;height:8px;overflow:hidden;margin-top:14px">
         <div style="height:100%;width:{confidence}%;background:{dir_color}"></div>
@@ -532,6 +535,28 @@ def _render_prediction(ticker, ohlc, tech, risk, bundle):
       <div style="color:#c8cce0;margin-top:14px;line-height:1.6">{pred['rationale']}</div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Avoid / Reduce risk flag (the "should I NOT buy this?" check) ──────────
+    try:
+        from _stock_analysis import classify_avoidance
+        av = classify_avoidance(
+            direction=pred["direction"], confidence=confidence,
+            quant_score=None, quant_grade=None,
+            rsi_14=tech.get("rsi_14"), srs=current_srs,
+        )
+        if av["level"] != "OK":
+            ac = "#ff5773" if av["level"] == "AVOID" else "#ff8800"
+            label = "🔴 AVOID — do not buy" if av["level"] == "AVOID" else "🟠 REDUCE — caution / trim"
+            st.markdown(
+                f'<div style="background:{ac}14;border:1px solid {ac}55;border-left:3px solid {ac};'
+                f'border-radius:6px;padding:10px 14px;margin:-2px 0 10px">'
+                f'<b style="color:{ac};font-size:13px">{label}</b>'
+                f'<span style="color:#8b93a7;font-size:12px"> — {" · ".join(av["reasons"])}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
 
     # Component breakdown
     with st.expander("🔍 Signal breakdown — which components contributed?"):
