@@ -18,7 +18,7 @@ import streamlit as st
 st.set_page_config(page_title="Strategies · INTL", page_icon="🎲", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme           import apply_theme, COLORS, status_pill, KPI_HELP
+from _theme           import apply_theme, COLORS, status_pill
 from _strategy_engine import (STRATEGIES, find_strategies, position_sizing,
                                 compute_levels, _grade_to_int)
 from _components       import TICKER_META
