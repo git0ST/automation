@@ -119,27 +119,9 @@ def _sector_returns_map() -> dict:
         return {}
 
 
-# Scan universe — diversified across ALL 11 GICS sectors so no segment of the
-# market can silently fall through the cracks. Organized by sector so coverage
-# gaps are obvious at a glance and presets can be built from the groups.
-UNIVERSE_BY_SECTOR = {
-    "Mega Tech":     ["NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "AVGO", "ORCL"],
-    "Semis":         ["AMD", "INTC", "QCOM", "ARM", "SMCI", "TSM", "MU", "MRVL", "TXN"],
-    "Software":      ["CRM", "ADBE", "NOW", "PLTR", "CRWD", "PANW", "SHOP", "INTU", "CSCO", "ACN", "IBM"],
-    "Communication": ["NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS"],
-    "Discretionary": ["TSLA", "HD", "MCD", "NKE", "SBUX", "LOW", "BKNG"],
-    "Staples":       ["WMT", "COST", "PG", "KO", "PEP", "PM", "MDLZ"],
-    "Financials":    ["JPM", "GS", "MS", "BAC", "WFC", "C", "SCHW", "BRK-B", "V", "MA", "AXP", "BLK", "SPGI"],
-    "Energy":        ["XOM", "CVX", "COP", "SLB", "EOG", "OXY", "MPC"],
-    "Healthcare":    ["UNH", "LLY", "JNJ", "MRK", "ABBV", "PFE", "TMO", "ABT", "DHR", "AMGN", "ISRG"],
-    "Industrials":   ["BA", "CAT", "GE", "RTX", "HON", "UPS", "LMT", "DE", "MMM"],
-    "Materials":     ["LIN", "FCX", "NEM", "APD", "SHW"],
-    "Real Estate":   ["PLD", "AMT", "EQIX"],
-    "Utilities":     ["NEE", "SO", "DUK"],
-}
-
-# Broad diversified default (~90 names, every sector represented)
-SCAN_UNIVERSE = [t for names in UNIVERSE_BY_SECTOR.values() for t in names]
+# Scan universe — single source of truth lives in shared/scan_universe.py so the
+# live scanner and the headless pipeline scanner can never diverge in coverage.
+from shared.scan_universe import UNIVERSE_BY_SECTOR, SCAN_UNIVERSE
 
 # Quick presets — let the user trade breadth vs. live-scan speed in one click.
 # (Live scan time scales ~linearly with ticker count; snapshot mode is instant.)

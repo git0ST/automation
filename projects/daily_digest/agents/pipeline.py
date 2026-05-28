@@ -388,8 +388,9 @@ async def run_pipeline(
         try:
             from agents.opportunity_runner import run_scan
             current_regime = (intelligence or {}).get("regime", {}).get("regime")
-            print(f"  [10] Running opportunity scanner (50 tickers)…")
-            scan_result = run_scan(current_regime=current_regime)
+            current_srs    = (intelligence or {}).get("risk", {}).get("srs")
+            print(f"  [10] Running opportunity scanner (full universe)…")
+            scan_result = run_scan(current_regime=current_regime, current_srs=current_srs)
             print(f"    Scan: {scan_result.get('n_scanned')} scanned, "
                   f"{scan_result.get('n_written')} written to Supabase "
                   f"(finnhub={scan_result.get('finnhub')})")
