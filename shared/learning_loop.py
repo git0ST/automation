@@ -250,6 +250,41 @@ def calibration_table() -> list[dict]:
         return []
 
 
+# Module-level TTL cache — composite_prediction calls load_calibration_map once
+# per scanned ticker (≈100×/scan); we must not hit Supabase that many times.
+_CAL_CACHE: dict = {"ts": 0.0, "data": None}
+
+
+def load_calibration_map(ttl_seconds: int = 300) -> dict:
+    """Return {(confidence_band, direction): (hit_rate_7d, n_settled)} from v_calibration.
+
+    Cached in-process for ttl_seconds. Used by the prediction engine to map
+    stated confidence onto the empirically observed hit rate (reliability
+    calibration). Empty dict when unavailable → caller leaves confidence as-is.
+    """
+    import time
+    now = time.time()
+    if _CAL_CACHE["data"] is not None and (now - _CAL_CACHE["ts"]) < ttl_seconds:
+        return _CAL_CACHE["data"]
+
+    out: dict = {}
+    client = _client()
+    if client:
+        try:
+            rows = (client.table("v_calibration").select("*").execute()).data or []
+            for r in rows:
+                band = r.get("confidence_band")
+                direction = r.get("direction")
+                hit = r.get("hit_rate_7d")
+                n = r.get("n_settled") or 0
+                if band and direction and hit is not None:
+                    out[(band, direction)] = (float(hit), int(n))
+        except Exception:
+            out = {}
+    _CAL_CACHE.update(ts=now, data=out)
+    return out
+
+
 # ── Single-call orchestrator ────────────────────────────────────────────────
 
 def run_learning_cycle(auto_activate: bool = False) -> dict:

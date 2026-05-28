@@ -453,7 +453,34 @@ def _render_prediction(ticker, ohlc, tech, risk, bundle):
     analyst_sig = analyst_signal(bundle.get("recommendations") or [])
     vol_sig_data = vol_signal((risk or {}).get("garch") or {})
 
-    pred = composite_prediction(tech_sig, sent_sig, analyst_sig, vol_sig_data)
+    # Live market environment → regime-conditional weights + systemic-risk haircut
+    current_regime = current_srs = None
+    try:
+        from _data import load_regime_risk
+        regime_dict, risk_dict, _, _ = load_regime_risk()
+        current_regime = regime_dict.get("regime") if regime_dict else None
+        current_srs    = risk_dict.get("srs") if risk_dict else None
+    except Exception:
+        pass
+
+    # Realized annualized vol from the price series for volatility targeting
+    realized_vol_annual = None
+    try:
+        import numpy as np
+        _arr = np.array(ohlc["close"], dtype=float)
+        if _arr.size >= 21:
+            _lr = np.diff(np.log(_arr[-63:])) if _arr.size >= 63 else np.diff(np.log(_arr))
+            if _lr.size > 1:
+                realized_vol_annual = float(np.std(_lr, ddof=1) * np.sqrt(252) * 100)
+    except Exception:
+        pass
+
+    pred = composite_prediction(
+        tech_sig, sent_sig, analyst_sig, vol_sig_data,
+        regime=current_regime,
+        srs=current_srs,
+        realized_vol_annual=realized_vol_annual,
+    )
 
     # Big visual card
     dir_label = pred["direction"].upper()
@@ -497,9 +524,12 @@ def _render_prediction(ticker, ohlc, tech, risk, bundle):
             st.dataframe(pd.DataFrame(rows).set_index("Signal"),
                          use_container_width=True)
         st.caption(
-            "**How this works**: Each signal votes bullish/bearish/neutral. "
-            "Confidence = how much they agree × their average strength × signal coverage. "
-            "Elevated volatility regime cuts confidence by 20% (wider stops needed)."
+            "**How this works**: Technical, quant (fundamental factors), analyst, "
+            "sentiment and sector each vote bullish/bearish/neutral with a "
+            "regime-tuned weight. Base conviction = agreement × strength × breadth, "
+            "then scaled by realized volatility (vol targeting), haircut by the "
+            "systemic-risk score, and finally pulled toward the historically "
+            "observed hit-rate for its confidence band (empirical calibration)."
         )
 
 

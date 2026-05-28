@@ -161,8 +161,13 @@ _ALL_TICKERS = sorted({t for names in UNIVERSE_BY_SECTOR.values() for t in names
 
 
 @st.cache_data(ttl=900, show_spinner=False)  # 15 min — scan is expensive
-def scan_universe(tickers: tuple, period: str = "1y") -> list[dict]:
+def scan_universe(tickers: tuple, period: str = "1y",
+                  regime: str | None = None, srs: float | None = None) -> list[dict]:
     """For each ticker: fetch data, compute prediction + quant score.
+
+    Passes the live regime + systemic-risk score into the prediction engine so
+    weighting and conviction are calibrated to the current environment, and
+    fuses the quant factor + per-ticker sentiment + realized vol into each call.
 
     Returns list of dicts with all signals merged.
     """
@@ -177,6 +182,18 @@ def scan_universe(tickers: tuple, period: str = "1y") -> list[dict]:
     except ImportError:
         finnhub_ready = False
         basic_financials_sync = recommendations_sync = quote_sync = None
+
+    # Batch-load per-ticker sentiment once (not per-iteration) so the collected
+    # news sentiment actually feeds the scanner instead of being thrown away.
+    sent_map: dict = {}
+    try:
+        from _data import load_per_ticker_sentiment
+        sent_map = load_per_ticker_sentiment(tuple(tickers)) or {}
+    except Exception:
+        sent_map = {}
+
+    # Sector ETF momentum map — fetched once, reused across tickers
+    sector_returns = _sector_returns_map()
 
     results = []
     for ticker in tickers:
@@ -218,17 +235,23 @@ def scan_universe(tickers: tuple, period: str = "1y") -> list[dict]:
 
             tech_sig = technical_signal(price, sma_20, sma_50, sma_200, rsi_14,
                                          advanced=advanced)
-            sent_sig = sentiment_signal({})
+            # Real per-ticker news sentiment (was previously fed an empty dict)
+            sent_sig = sentiment_signal(sent_map.get(ticker, {}))
             anal_sig = analyst_signal(recs)
             # Sector confirmation signal
             meta_sector = TICKER_META.get(ticker, {}).get("sector", "")
-            sect_sig = sector_signal(meta_sector, _sector_returns_map())
-            vol_sig_data = vol_signal({})
+            sect_sig = sector_signal(meta_sector, sector_returns)
 
-            prediction = composite_prediction(tech_sig, sent_sig, anal_sig,
-                                              vol_sig_data, sector=sect_sig)
+            # Realized annualized volatility from the last ~3mo of daily log
+            # returns — feeds the engine's volatility-targeting step.
+            realized_vol_annual = None
+            if len(arr) >= 21:
+                logret = np.diff(np.log(arr[-63:])) if len(arr) >= 63 else np.diff(np.log(arr))
+                if logret.size > 1:
+                    realized_vol_annual = float(np.std(logret, ddof=1) * np.sqrt(252) * 100)
 
-            # Quant score
+            # Quant factor score — computed BEFORE the prediction so its quality
+            # tilt can be fused into the directional call.
             target_upside = None
             if fin and fin.get("priceTargetMean") and fin.get("priceTargetMean") > 0:
                 target_upside = (fin["priceTargetMean"] / price - 1) * 100
@@ -241,6 +264,16 @@ def scan_universe(tickers: tuple, period: str = "1y") -> list[dict]:
                     "eps_revisions_down": None,
                     "target_upside_pct":  target_upside,
                 },
+            )
+
+            prediction = composite_prediction(
+                tech_sig, sent_sig, anal_sig,
+                vol={},                              # realized vol passed directly below
+                sector=sect_sig,
+                quant=quant,
+                regime=regime,
+                srs=srs,
+                realized_vol_annual=realized_vol_annual,
             )
 
             chg_1d = (arr[-1] / arr[-2] - 1) * 100 if len(arr) >= 2 else 0
@@ -375,23 +408,25 @@ def main():
             st.caption("⚠ No snapshot yet — pipeline hasn't run with migration 011 applied. "
                        "Running live scan as fallback.")
 
+    # Current market environment — fed INTO the scanner so the prediction engine
+    # uses regime-conditional weights + a systemic-risk conviction haircut.
+    try:
+        from _data import load_regime_risk
+        regime_dict, risk_dict, _, _ = load_regime_risk()
+        current_regime = regime_dict.get("regime") if regime_dict else None
+        current_srs    = risk_dict.get("srs") if risk_dict else None
+    except Exception:
+        current_regime = current_srs = None
+
     if use_snapshot and not force_live:
         results = snapshot_results
     else:
         with st.spinner(f"Scanning {len(universe)} tickers — multi-factor analysis…"):
-            results = scan_universe(tuple(universe))
+            results = scan_universe(tuple(universe), regime=current_regime, srs=current_srs)
 
     # Log predictions for backtest tracking + self-improvement
     try:
         from shared.prediction_tracker import log_prediction
-        # Fetch current regime/SRS so each prediction is tagged
-        try:
-            from _data import load_regime_risk
-            regime_dict, risk_dict, _, _ = load_regime_risk()
-            current_regime = regime_dict.get("regime") if regime_dict else None
-            current_srs    = risk_dict.get("srs") if risk_dict else None
-        except Exception:
-            current_regime = current_srs = None
 
         logged = 0
         for r in results:

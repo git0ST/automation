@@ -199,48 +199,178 @@ def vol_signal(garch: dict) -> dict:
     }
 
 
+def quant_signal(quant: dict | None) -> dict:
+    """Turn the 5-factor quant score into a directional quality tilt.
+
+    Quality, value and momentum factors carry forward-return information
+    (Fama-French 1993; Novy-Marx 2013 'profitability'; Asness/Frazzini/Pedersen
+    'Quality Minus Junk' 2019). A high composite score leans the call bullish,
+    a low score bearish — proportional to distance from the neutral midpoint (50).
+    Used as a *factor layer* alongside the timing signals, not a replacement.
+    """
+    if not quant:
+        return {"direction": "neutral", "strength": 0.0}
+    s = quant.get("composite_score")
+    if s is None:
+        return {"direction": "neutral", "strength": 0.0}
+    dev = (s - 50.0) / 50.0                      # -1 .. +1
+    direction = "bullish" if dev > 0.12 else "bearish" if dev < -0.12 else "neutral"
+    return {"direction": direction,
+            "strength": min(1.0, abs(dev) * 1.4),
+            "composite_score": s}
+
+
+# Annualized vol the engine treats as "normal" conviction. Barroso & Santa-Clara
+# (2015, "Momentum has its moments") show scaling exposure to a constant vol
+# target sharply improves risk-adjusted returns — we scale CONVICTION likewise.
+_TARGET_VOL_ANNUAL = 0.20  # 20% — typical single-name equity baseline
+
+
+def _vol_modifier(vol: dict | None, realized_vol_annual: float | None) -> tuple[str, float]:
+    """Volatility-targeting conviction scalar.
+
+    Returns (regime_label, multiplier). Multiplier > 1 when vol is below target
+    (calmer tape → trust the signal more), < 1 when above (noisier → trim).
+    Prefers a directly-measured realized vol; falls back to GARCH annualized,
+    then to the coarse regime label.
+    """
+    rv = None
+    if realized_vol_annual is not None and realized_vol_annual > 0:
+        # accept either a fraction (0.30) or a percent (30.0)
+        rv = realized_vol_annual / 100.0 if realized_vol_annual > 3 else float(realized_vol_annual)
+    elif vol and vol.get("annualized_pct"):
+        rv = float(vol["annualized_pct"]) / 100.0
+
+    if rv and rv > 0:
+        mult = (_TARGET_VOL_ANNUAL / rv) ** 0.5         # sqrt damps the scaling
+        mult = max(0.70, min(1.10, mult))
+        regime = "elevated" if rv > 0.35 else "compressed" if rv < 0.15 else "normal"
+        return regime, mult
+
+    regime = vol.get("regime", "normal") if vol else "normal"
+    mult = {"elevated": 0.85, "compressed": 1.03}.get(regime, 1.0)
+    return regime, mult
+
+
+def _srs_modifier(srs: float | None, direction: str) -> float:
+    """Systemic-Risk-Score conviction haircut.
+
+    High systemic risk (risk-off) compresses conviction across the board and
+    penalizes LONGS harder than shorts — mirroring how pro risk desks cut gross
+    and net exposure as breadth/credit/vol stress rises.
+    """
+    if srs is None:
+        return 1.0
+    try:
+        srs = float(srs)
+    except (TypeError, ValueError):
+        return 1.0
+    mult = 1.0 - max(0.0, (srs - 50.0)) / 250.0     # srs 100 → 0.80
+    mult += max(0.0, (50.0 - srs)) / 600.0          # srs 0   → +0.083
+    mult = max(0.80, min(1.06, mult))
+    if srs >= 65 and direction == "bullish":         # risk-off: trim longs extra
+        mult *= 0.90
+    return mult
+
+
+def _conf_band(c: float) -> str:
+    """Map a confidence value to the same bands used by the v_calibration view."""
+    if c >= 80: return "80-100%"
+    if c >= 70: return "70-79%"
+    if c >= 60: return "60-69%"
+    if c >= 50: return "50-59%"
+    return "<50%"
+
+
+def _apply_calibration(direction: str, raw_conf: float) -> tuple[float, str | None]:
+    """Re-scale stated confidence toward the empirically observed hit rate.
+
+    Reliability calibration (Platt 1999; isotonic regression) is standard in
+    professional probabilistic forecasting: a model that says "70%" should be
+    right ~70% of the time. We pull stated confidence toward the realized
+    band hit-rate using Bayesian shrinkage — the more settled observations a
+    band has, the more we trust the empirical number over the model's prior.
+    """
+    try:
+        from shared.learning_loop import load_calibration_map
+        cmap = load_calibration_map()
+    except Exception:
+        return raw_conf, None
+    if not cmap:
+        return raw_conf, None
+
+    band = _conf_band(raw_conf)
+    entry = cmap.get((band, direction))
+    if not entry:
+        return raw_conf, None
+    hit_rate, n = entry                              # hit_rate in 0..1
+    if hit_rate is None or n < 10:                   # too little data to trust
+        return raw_conf, None
+
+    K = 40.0                                         # shrinkage strength
+    alpha = n / (n + K)                              # n=40 → 0.5, n=120 → 0.75
+    calibrated = raw_conf * (1 - alpha) + (hit_rate * 100.0) * alpha
+    note = (f"calibrated {raw_conf:.0f}→{calibrated:.0f}% "
+            f"(band {band}, n={n}, observed {hit_rate * 100:.0f}%)")
+    return calibrated, note
+
+
 def composite_prediction(technical: dict, sentiment: dict,
                          analyst: dict, vol: dict,
                          sector: dict | None = None,
-                         regime: str | None = None) -> dict:
-    """Blend signals into one directional call + confidence %.
+                         quant: dict | None = None,
+                         regime: str | None = None,
+                         srs: float | None = None,
+                         realized_vol_annual: float | None = None,
+                         calibrate: bool = True) -> dict:
+    """Blend every collected signal into one calibrated directional call.
 
-    Confidence formula (new):
-        confidence = agreement × signal_strength × coverage_bonus
-    Where:
-        agreement       = % of contributing signals that point same way (0-1)
-        signal_strength = weighted strength × signal richness factor
-        coverage_bonus  = 1.0 + 0.10 × (n_signals - 1), capped at 1.30
+    Pipeline (each step grounded in established practice):
+      1. Regime-conditional weights      — signal efficacy varies by regime
+                                            (regime-switching models).
+      2. Weighted directional vote        — technical + quant factor + analyst
+                                            + sentiment + sector.
+      3. Agreement × strength → base      — corroboration raises conviction,
+                                            disagreement cuts it sharply.
+      4. Volatility targeting             — scale conviction inversely to
+                                            realized vol (Barroso–Santa-Clara).
+      5. Systemic-risk haircut            — trim conviction (esp. longs) when
+                                            the SRS flags a risk-off tape.
+      6. Empirical calibration            — pull stated confidence toward the
+                                            observed band hit-rate (Platt-style).
 
-    Coverage now ADDS confidence (corroboration bonus) rather than
-    subtracting it — a single strong multi-indicator signal can score
-    high if it's high quality, while disagreeing signals always reduce
-    confidence sharply.
+    All inputs beyond the four core signals are optional and degrade safely.
     """
-    # Load learned weights (regime-aware if available)
+    # ── 1. Regime-conditional weights ──────────────────────────────────────────
     try:
         from shared.learning_loop import load_active_weights
         active = load_active_weights(regime=regime)
-        weights = {
-            "technical": float(active.get("technical_w") or 0.35),
-            "sentiment": float(active.get("sentiment_w") or 0.25),
-            "analyst":   float(active.get("analyst_w")   or 0.25),
-            "sector":    0.15,
-            "vol":       float(active.get("vol_w")       or 0.10),
-        }
+        w_tech = float(active.get("technical_w") or 0.30)
+        w_sent = float(active.get("sentiment_w") or 0.15)
+        w_anal = float(active.get("analyst_w")   or 0.18)
     except Exception:
-        weights = {"technical": 0.35, "sentiment": 0.20, "analyst": 0.20,
-                   "sector": 0.15, "vol": 0.10}
+        w_tech, w_sent, w_anal = 0.30, 0.15, 0.18
+
+    weights = {
+        "technical": w_tech,
+        "quant":     0.22,   # fundamental multi-factor alpha (quality/value/mom)
+        "analyst":   w_anal,
+        "sentiment": w_sent,
+        "sector":    0.10,
+    }
+
+    q_sig = quant_signal(quant)
 
     def to_vote(d):
         if d == "bullish": return +1
         if d == "bearish": return -1
         return 0
 
-    # Collect contributing signals
+    # ── 2. Collect contributing directional signals ────────────────────────────
     components = []
-    for name, sig in [("technical", technical), ("sentiment", sentiment),
-                      ("analyst", analyst), ("sector", sector or {})]:
+    for name, sig in [("technical", technical), ("quant", q_sig),
+                      ("analyst", analyst), ("sentiment", sentiment),
+                      ("sector", sector or {})]:
         if sig.get("strength", 0) > 0:
             components.append((name, to_vote(sig["direction"]),
                                float(sig["strength"]), weights.get(name, 0.1)))
@@ -249,13 +379,12 @@ def composite_prediction(technical: dict, sentiment: dict,
         return {"direction": "neutral", "confidence": 0,
                 "rationale": "No signals available", "components": []}
 
-    # Direction = weighted sum
     weighted_sum = sum(vote * strength * weight for _, vote, strength, weight in components)
     total_weight = sum(weight for _, _, _, weight in components)
     score = weighted_sum / total_weight if total_weight else 0
     direction = "bullish" if score > 0.15 else "bearish" if score < -0.15 else "neutral"
 
-    # Agreement: % of components voting same direction as overall score
+    # ── 3. Agreement × strength → base conviction ──────────────────────────────
     dirs = [c[1] for c in components if c[1] != 0]
     if not dirs:
         agreement = 0.3
@@ -263,22 +392,14 @@ def composite_prediction(technical: dict, sentiment: dict,
         same = sum(1 for d in dirs if (d > 0) == (score > 0))
         agreement = same / len(dirs)
 
-    # Signal strength (raw weighted average, capped at 0.9 for single signal)
     avg_strength = sum(c[2] * c[3] for c in components) / total_weight
     tech_votes = technical.get("vote_count", 0) if technical else 0
 
-    # Calibrated confidence — base confidence comes from agreement × strength,
-    # corroboration bonus tops it up only when multiple signal types align.
     n_signals = len(components)
+    # Ceiling scales with corroboration breadth (1 source caps lower than 5)
+    base_ceiling = {1: 68, 2: 80, 3: 88, 4: 93, 5: 96}.get(n_signals, 96)
 
-    # Base ceiling per signal count: single=70, two=82, three=90, four=95
-    base_ceiling = {1: 70, 2: 82, 3: 90, 4: 95}.get(n_signals, 95)
-
-    # Score: agreement × strength gives a 0-1 value
     base_score = agreement * avg_strength
-
-    # Technical richness modifier — multi-indicator tech (8+ votes) deserves
-    # a small lift, but capped so it can't single-handedly hit 95%+
     if tech_votes >= 8:
         base_score = min(1.0, base_score * 1.05)
     elif tech_votes >= 6:
@@ -286,35 +407,51 @@ def composite_prediction(technical: dict, sentiment: dict,
 
     confidence = base_score * base_ceiling
 
-    # Vol regime modifier
-    vol_regime = vol.get("regime", "normal") if vol else "normal"
-    if vol_regime == "elevated":
-        confidence *= 0.85
-    elif vol_regime == "compressed":
-        confidence *= 1.03
+    # ── 4. Volatility targeting ────────────────────────────────────────────────
+    vol_regime, vol_mult = _vol_modifier(vol, realized_vol_annual)
+    confidence *= vol_mult
 
-    confidence = max(0, min(95, confidence))
+    # ── 5. Systemic-risk haircut ───────────────────────────────────────────────
+    srs_mult = _srs_modifier(srs, direction)
+    confidence *= srs_mult
 
-    rationale = _build_rationale(direction, components, vol_regime, tech_votes)
+    confidence = max(0, min(96, confidence))
+    raw_confidence = confidence
+
+    # ── 6. Empirical calibration ───────────────────────────────────────────────
+    cal_note = None
+    if calibrate and direction != "neutral":
+        confidence, cal_note = _apply_calibration(direction, confidence)
+
+    confidence = max(0, min(97, confidence))
+
+    rationale = _build_rationale(direction, components, vol_regime, tech_votes,
+                                 srs=srs, regime=regime, cal_note=cal_note)
 
     return {
-        "direction":   direction,
-        "confidence":  round(confidence, 1),
-        "score":       round(score, 3),
-        "agreement":   round(agreement, 3),
-        "vol_regime":  vol_regime,
-        "tech_votes":  tech_votes,
-        "rationale":   rationale,
+        "direction":      direction,
+        "confidence":     round(confidence, 1),
+        "raw_confidence": round(raw_confidence, 1),
+        "score":          round(score, 3),
+        "agreement":      round(agreement, 3),
+        "vol_regime":     vol_regime,
+        "vol_mult":       round(vol_mult, 3),
+        "srs_mult":       round(srs_mult, 3),
+        "regime":         regime,
+        "tech_votes":     tech_votes,
+        "rationale":      rationale,
+        "calibration":    cal_note,
         "components": [
             {"name": n, "direction": "bullish" if v > 0 else "bearish" if v < 0 else "neutral",
-             "strength": round(s, 3), "weight": w}
+             "strength": round(s, 3), "weight": round(w, 3)}
             for n, v, s, w in components
         ],
     }
 
 
 def _build_rationale(direction: str, components: list, vol_regime: str,
-                     tech_votes: int = 0) -> str:
+                     tech_votes: int = 0, srs: float | None = None,
+                     regime: str | None = None, cal_note: str | None = None) -> str:
     """Plain-English explanation of the prediction."""
     bull = sum(1 for _, v, _, _ in components if v > 0)
     bear = sum(1 for _, v, _, _ in components if v < 0)
@@ -327,10 +464,21 @@ def _build_rationale(direction: str, components: list, vol_regime: str,
         parts.append("**Signals mixed** — no directional edge.")
     names = [c[0].title() for c in components]
     parts.append(f"Sources: {', '.join(names)}.")
+    if regime:
+        parts.append(f"Weights tuned for **{regime}** regime.")
     if tech_votes >= 8:
         parts.append(f"Technical layer is rich ({tech_votes} indicators agree-direction).")
     if vol_regime == "elevated":
-        parts.append("⚠ Elevated vol — wider stops + smaller position.")
+        parts.append("⚠ Elevated vol — conviction trimmed, wider stops + smaller size.")
     elif vol_regime == "compressed":
         parts.append("Vol compressed — watch for breakouts.")
+    if srs is not None:
+        try:
+            if float(srs) >= 65:
+                parts.append(f"⚠ Systemic risk high (SRS {float(srs):.0f}) — "
+                             f"conviction haircut applied{'; longs penalized' if direction == 'bullish' else ''}.")
+        except (TypeError, ValueError):
+            pass
+    if cal_note:
+        parts.append(f"📐 {cal_note}.")
     return " ".join(parts)
