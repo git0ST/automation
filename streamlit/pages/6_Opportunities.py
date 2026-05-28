@@ -86,10 +86,24 @@ def _sector_returns_map() -> dict:
     """Pull 5-day sector ETF returns for sector-confirmation signal."""
     try:
         import yfinance as yf
-        ETF_MAP = {"Tech": "XLK", "Semis": "XLK", "Fin": "XLF", "Bank": "XLF",
-                   "Energy": "XLE", "Health": "XLV", "Pharma": "XLV",
-                   "Auto": "XLY", "Retail": "XLP", "Restaurant": "XLY",
-                   "Conglomerate": "XLI", "Payments": "XLF", "Apparel": "XLY"}
+        ETF_MAP = {
+            # Information technology
+            "Tech": "XLK", "Software": "XLK", "Semis": "XLK",
+            # Financials
+            "Fin": "XLF", "Bank": "XLF", "Payments": "XLF", "Financials": "XLF",
+            "AssetMgmt": "XLF", "Insurance": "XLF",
+            # Healthcare
+            "Health": "XLV", "Pharma": "XLV", "Biotech": "XLV", "MedTech": "XLV",
+            # Energy / materials / utilities / real estate
+            "Energy": "XLE", "Materials": "XLB", "Utility": "XLU", "REIT": "XLRE",
+            # Consumer
+            "Auto": "XLY", "Discretionary": "XLY", "Restaurant": "XLY", "Apparel": "XLY",
+            "Retail": "XLP", "Staples": "XLP",
+            # Communication
+            "Media": "XLC", "Telecom": "XLC",
+            # Industrials
+            "Industrial": "XLI", "Aerospace": "XLI", "Conglomerate": "XLI",
+        }
         returns = {}
         for sector, etf in ETF_MAP.items():
             try:
@@ -105,25 +119,45 @@ def _sector_returns_map() -> dict:
         return {}
 
 
-# Default scan universe — diversified across mega cap + sectors
-SCAN_UNIVERSE = [
-    # Mega cap tech
-    "NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "AVGO", "ORCL",
-    # Semis
-    "AMD", "INTC", "QCOM", "ARM", "SMCI", "TSM", "MU", "MRVL",
-    # Software
-    "CRM", "ADBE", "NOW", "PLTR", "CRWD", "PANW", "SHOP",
-    # Financials
-    "JPM", "GS", "MS", "BAC", "BRK-B", "V", "MA", "BLK",
-    # Energy
-    "XOM", "CVX", "COP", "SLB",
-    # Healthcare
-    "UNH", "LLY", "JNJ", "MRK", "ABBV",
-    # Consumer
-    "WMT", "COST", "HD", "MCD", "DIS", "NFLX",
-    # Industrials
-    "BA", "CAT", "GE", "RTX",
-]
+# Scan universe — diversified across ALL 11 GICS sectors so no segment of the
+# market can silently fall through the cracks. Organized by sector so coverage
+# gaps are obvious at a glance and presets can be built from the groups.
+UNIVERSE_BY_SECTOR = {
+    "Mega Tech":     ["NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "AVGO", "ORCL"],
+    "Semis":         ["AMD", "INTC", "QCOM", "ARM", "SMCI", "TSM", "MU", "MRVL", "TXN"],
+    "Software":      ["CRM", "ADBE", "NOW", "PLTR", "CRWD", "PANW", "SHOP", "INTU", "CSCO", "ACN", "IBM"],
+    "Communication": ["NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS"],
+    "Discretionary": ["TSLA", "HD", "MCD", "NKE", "SBUX", "LOW", "BKNG"],
+    "Staples":       ["WMT", "COST", "PG", "KO", "PEP", "PM", "MDLZ"],
+    "Financials":    ["JPM", "GS", "MS", "BAC", "WFC", "C", "SCHW", "BRK-B", "V", "MA", "AXP", "BLK", "SPGI"],
+    "Energy":        ["XOM", "CVX", "COP", "SLB", "EOG", "OXY", "MPC"],
+    "Healthcare":    ["UNH", "LLY", "JNJ", "MRK", "ABBV", "PFE", "TMO", "ABT", "DHR", "AMGN", "ISRG"],
+    "Industrials":   ["BA", "CAT", "GE", "RTX", "HON", "UPS", "LMT", "DE", "MMM"],
+    "Materials":     ["LIN", "FCX", "NEM", "APD", "SHW"],
+    "Real Estate":   ["PLD", "AMT", "EQIX"],
+    "Utilities":     ["NEE", "SO", "DUK"],
+}
+
+# Broad diversified default (~90 names, every sector represented)
+SCAN_UNIVERSE = [t for names in UNIVERSE_BY_SECTOR.values() for t in names]
+
+# Quick presets — let the user trade breadth vs. live-scan speed in one click.
+# (Live scan time scales ~linearly with ticker count; snapshot mode is instant.)
+UNIVERSE_PRESETS = {
+    "Broad — all 11 sectors (90+)": SCAN_UNIVERSE,
+    "Core mega caps (15)": ["NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA",
+                            "AVGO", "JPM", "V", "UNH", "LLY", "XOM", "WMT", "HD"],
+    "Tech & Semis focus": (UNIVERSE_BY_SECTOR["Mega Tech"] + UNIVERSE_BY_SECTOR["Semis"]
+                           + UNIVERSE_BY_SECTOR["Software"]),
+    "Defensive (Staples · Health · Utilities)": (UNIVERSE_BY_SECTOR["Staples"]
+                           + UNIVERSE_BY_SECTOR["Healthcare"] + UNIVERSE_BY_SECTOR["Utilities"]),
+    "Cyclical (Energy · Materials · Industrials · Financials)": (
+                           UNIVERSE_BY_SECTOR["Energy"] + UNIVERSE_BY_SECTOR["Materials"]
+                           + UNIVERSE_BY_SECTOR["Industrials"] + UNIVERSE_BY_SECTOR["Financials"]),
+}
+
+# Master option list for the multiselect (union of everything we know about)
+_ALL_TICKERS = sorted({t for names in UNIVERSE_BY_SECTOR.values() for t in names})
 
 
 @st.cache_data(ttl=900, show_spinner=False)  # 15 min — scan is expensive
@@ -253,15 +287,43 @@ def main():
     # Filter controls
     col_uni, col_conf, col_dir = st.columns([2, 1, 1])
     with col_uni:
+        preset = st.selectbox(
+            "Universe preset",
+            list(UNIVERSE_PRESETS.keys()),
+            index=0,
+            help="Pick a starting set spanning the sectors you care about, "
+                 "then add or remove individual names below.",
+        )
+        # key includes preset → multiselect re-seeds with the new default on switch
         universe = st.multiselect(
-            "Scan universe (defaults to 50-stock S&P diversified set)",
-            SCAN_UNIVERSE, default=SCAN_UNIVERSE, max_selections=80,
+            "Scan universe — spans all 11 GICS sectors so no segment is missed",
+            _ALL_TICKERS,
+            default=UNIVERSE_PRESETS[preset],
+            max_selections=120,
+            key=f"uni_{preset}",
         )
     with col_conf:
         min_confidence = st.slider("Min confidence %", 0, 100, 40, step=5,
                                     help="Only surface setups with composite confidence ≥ this")
     with col_dir:
         direction_filter = st.selectbox("Direction", ["All", "Bullish", "Bearish"])
+
+    # Sector-coverage readout — flag any GICS sector the selection misses
+    if universe:
+        sel = set(universe)
+        covered = [s for s, names in UNIVERSE_BY_SECTOR.items() if sel & set(names)]
+        missing = [s for s, names in UNIVERSE_BY_SECTOR.items() if not (sel & set(names))]
+        cov_html = (
+            f'<span style="color:#8b93a7;font-size:11px">Scanning '
+            f'<b style="color:#e6e9f0">{len(universe)}</b> names · '
+            f'<b style="color:#00d68f">{len(covered)}/{len(UNIVERSE_BY_SECTOR)}</b> '
+            f'sectors covered'
+        )
+        if missing:
+            cov_html += (f' · <span style="color:#ffaa00">no exposure to: '
+                         f'{", ".join(missing)}</span>')
+        cov_html += "</span>"
+        st.markdown(cov_html, unsafe_allow_html=True)
 
     # Optional: filter by sector
     with st.expander("⚙ Advanced filters"):

@@ -96,6 +96,83 @@ TICKER_META = {
     "SOL-USD": {"name": "Solana",        "logo": None, "type": "crypto", "icon": "◎"},
     "BNB-USD": {"name": "BNB",           "logo": None, "type": "crypto", "icon": "B"},
     "XRP-USD": {"name": "XRP",           "logo": None, "type": "crypto", "icon": "X"},
+
+    # ── Expanded scanner universe — full GICS sector coverage ────────────────
+    # Software & IT services
+    "CRM":   {"name": "Salesforce",      "logo": "CRM",  "type": "stock", "sector": "Software"},
+    "ADBE":  {"name": "Adobe",           "logo": "ADBE", "type": "stock", "sector": "Software"},
+    "NOW":   {"name": "ServiceNow",      "logo": "NOW",  "type": "stock", "sector": "Software"},
+    "PLTR":  {"name": "Palantir",        "logo": "PLTR", "type": "stock", "sector": "Software"},
+    "CRWD":  {"name": "CrowdStrike",     "logo": "CRWD", "type": "stock", "sector": "Software"},
+    "PANW":  {"name": "Palo Alto Nets",  "logo": "PANW", "type": "stock", "sector": "Software"},
+    "SHOP":  {"name": "Shopify",         "logo": "SHOP", "type": "stock", "sector": "Software"},
+    "INTU":  {"name": "Intuit",          "logo": "INTU", "type": "stock", "sector": "Software"},
+    "CSCO":  {"name": "Cisco",           "logo": "CSCO", "type": "stock", "sector": "Tech"},
+    "ACN":   {"name": "Accenture",       "logo": "ACN",  "type": "stock", "sector": "Tech"},
+    "IBM":   {"name": "IBM",             "logo": "IBM",  "type": "stock", "sector": "Tech"},
+    "TXN":   {"name": "Texas Instr.",    "logo": "TXN",  "type": "stock", "sector": "Semis"},
+
+    # Communication services
+    "NFLX":  {"name": "Netflix",         "logo": "NFLX", "type": "stock", "sector": "Media"},
+    "DIS":   {"name": "Disney",          "logo": "DIS",  "type": "stock", "sector": "Media"},
+    "CMCSA": {"name": "Comcast",         "logo": "CMCSA","type": "stock", "sector": "Media"},
+    "T":     {"name": "AT&T",            "logo": "T",    "type": "stock", "sector": "Telecom"},
+    "VZ":    {"name": "Verizon",         "logo": "VZ",   "type": "stock", "sector": "Telecom"},
+    "TMUS":  {"name": "T-Mobile",        "logo": "TMUS", "type": "stock", "sector": "Telecom"},
+
+    # Consumer discretionary
+    "LOW":   {"name": "Lowe's",          "logo": "LOW",  "type": "stock", "sector": "Discretionary"},
+    "BKNG":  {"name": "Booking",         "logo": "BKNG", "type": "stock", "sector": "Discretionary"},
+
+    # Consumer staples
+    "PG":    {"name": "Procter & Gamble","logo": "PG",   "type": "stock", "sector": "Staples"},
+    "KO":    {"name": "Coca-Cola",       "logo": "KO",   "type": "stock", "sector": "Staples"},
+    "PEP":   {"name": "PepsiCo",         "logo": "PEP",  "type": "stock", "sector": "Staples"},
+    "PM":    {"name": "Philip Morris",   "logo": "PM",   "type": "stock", "sector": "Staples"},
+    "MDLZ":  {"name": "Mondelez",        "logo": "MDLZ", "type": "stock", "sector": "Staples"},
+
+    # Financials
+    "SCHW":  {"name": "Charles Schwab",  "logo": "SCHW", "type": "stock", "sector": "Bank"},
+    "AXP":   {"name": "Amex",            "logo": "AXP",  "type": "stock", "sector": "Payments"},
+    "SPGI":  {"name": "S&P Global",      "logo": "SPGI", "type": "stock", "sector": "Financials"},
+
+    # Energy
+    "MPC":   {"name": "Marathon Pet.",   "logo": "MPC",  "type": "stock", "sector": "Energy"},
+
+    # Healthcare
+    "TMO":   {"name": "Thermo Fisher",   "logo": "TMO",  "type": "stock", "sector": "MedTech"},
+    "ABT":   {"name": "Abbott",          "logo": "ABT",  "type": "stock", "sector": "MedTech"},
+    "DHR":   {"name": "Danaher",         "logo": "DHR",  "type": "stock", "sector": "MedTech"},
+    "AMGN":  {"name": "Amgen",           "logo": "AMGN", "type": "stock", "sector": "Biotech"},
+    "ISRG":  {"name": "Intuitive Surg.", "logo": "ISRG", "type": "stock", "sector": "MedTech"},
+
+    # Industrials
+    "BA":    {"name": "Boeing",          "logo": "BA",   "type": "stock", "sector": "Aerospace"},
+    "CAT":   {"name": "Caterpillar",     "logo": "CAT",  "type": "stock", "sector": "Industrial"},
+    "GE":    {"name": "GE Aerospace",    "logo": "GE",   "type": "stock", "sector": "Aerospace"},
+    "RTX":   {"name": "RTX",             "logo": "RTX",  "type": "stock", "sector": "Aerospace"},
+    "HON":   {"name": "Honeywell",       "logo": "HON",  "type": "stock", "sector": "Industrial"},
+    "UPS":   {"name": "UPS",             "logo": "UPS",  "type": "stock", "sector": "Industrial"},
+    "LMT":   {"name": "Lockheed Martin", "logo": "LMT",  "type": "stock", "sector": "Aerospace"},
+    "DE":    {"name": "Deere",           "logo": "DE",   "type": "stock", "sector": "Industrial"},
+    "MMM":   {"name": "3M",              "logo": "MMM",  "type": "stock", "sector": "Industrial"},
+
+    # Materials
+    "LIN":   {"name": "Linde",           "logo": "LIN",  "type": "stock", "sector": "Materials"},
+    "FCX":   {"name": "Freeport-McM.",   "logo": "FCX",  "type": "stock", "sector": "Materials"},
+    "NEM":   {"name": "Newmont",         "logo": "NEM",  "type": "stock", "sector": "Materials"},
+    "APD":   {"name": "Air Products",    "logo": "APD",  "type": "stock", "sector": "Materials"},
+    "SHW":   {"name": "Sherwin-Will.",   "logo": "SHW",  "type": "stock", "sector": "Materials"},
+
+    # Real estate
+    "PLD":   {"name": "Prologis",        "logo": "PLD",  "type": "stock", "sector": "REIT"},
+    "AMT":   {"name": "American Tower",  "logo": "AMT",  "type": "stock", "sector": "REIT"},
+    "EQIX":  {"name": "Equinix",         "logo": "EQIX", "type": "stock", "sector": "REIT"},
+
+    # Utilities
+    "NEE":   {"name": "NextEra Energy",  "logo": "NEE",  "type": "stock", "sector": "Utility"},
+    "SO":    {"name": "Southern Co",     "logo": "SO",   "type": "stock", "sector": "Utility"},
+    "DUK":   {"name": "Duke Energy",     "logo": "DUK",  "type": "stock", "sector": "Utility"},
 }
 
 
