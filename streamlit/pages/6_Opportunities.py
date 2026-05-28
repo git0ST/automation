@@ -569,7 +569,7 @@ def _render_opportunity_list(opportunities: list[dict], emphasis: str = "bullish
             tt3.metric("12M return", f"{r.get('ret_12m', 0):+.1f}%" if r.get("ret_12m") is not None else "—")
 
             if st.button(f"🔍 Open {r['ticker']} in Stock Detail",
-                         key=f"detail_{r['ticker']}", use_container_width=True):
+                         key=f"detail_{emphasis}_{r['ticker']}", use_container_width=True):
                 st.session_state["detail_ticker"] = r["ticker"]
                 st.switch_page("pages/5_Stock_Detail.py")
 
