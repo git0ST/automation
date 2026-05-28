@@ -259,8 +259,28 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
   background: #0a0e1a !important;
   border-right: 1px solid #1f2937 !important;
 }
-/* Hide Streamlit's auto-generated pages navigation — custom nav in render_sidebar() */
-[data-testid="stSidebarNav"] { display: none !important; }
+/* Streamlit auto-generated pages navigation — styled to match terminal theme */
+[data-testid="stSidebarNav"] {
+  background: #0a0e1a !important;
+  padding-top: 4px !important;
+}
+[data-testid="stSidebarNav"] a {
+  border-radius: 4px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #8b93a7 !important;
+  padding: 6px 12px !important;
+  transition: background 0.12s, color 0.12s !important;
+}
+[data-testid="stSidebarNav"] a:hover {
+  background: #131825 !important;
+  color: #e6e9f0 !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"] {
+  background: #1a2034 !important;
+  color: #4c8bf5 !important;
+  font-weight: 600 !important;
+}
 
 .sidebar-card {
   background: #131825;

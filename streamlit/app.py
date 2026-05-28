@@ -486,23 +486,6 @@ def render_sidebar(regime: dict, risk: dict, source: str) -> None:
             </div>""", unsafe_allow_html=True)
 
         st.divider()
-        # Primary nav — the 5 things a trader does daily
-        st.markdown("**Daily flow**")
-        st.page_link("app.py",                       label="🏠 Home")
-        st.page_link("pages/6_Opportunities.py",     label="🎯 Today's Setups")
-        st.page_link("pages/5_Stock_Detail.py",      label="🔍 Stock Analysis")
-        st.page_link("pages/4_Portfolio.py",         label="💼 My Portfolio")
-        st.page_link("pages/A_Global_Markets.py",    label="🌍 Markets")
-
-        # Secondary — opens on demand
-        with st.expander("Deeper tools"):
-            st.page_link("pages/9_Strategies.py",     label="🎲 Strategy Playbooks")
-            st.page_link("pages/8_Options_Flow.py",   label="⚡ Options Flow")
-            st.page_link("pages/2_Risk.py",           label="📊 Risk & VaR")
-            st.page_link("pages/3_Research.py",       label="🤖 Ask Anything")
-            st.page_link("pages/1_Markets.py",        label="📈 US Sector Deep-Dive")
-            st.page_link("pages/7_Track_Record.py",   label="📈 Model Track Record")
-        st.divider()
 
         # Pipeline trigger CTA
         with st.expander("⚙️ Pipeline Status"):
