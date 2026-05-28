@@ -392,7 +392,9 @@ async def run_pipeline(
             print(f"  [10] Running opportunity scanner (full universe)…")
             scan_result = run_scan(current_regime=current_regime, current_srs=current_srs)
             print(f"    Scan: {scan_result.get('n_scanned')} scanned, "
-                  f"{scan_result.get('n_written')} written to Supabase "
+                  f"{scan_result.get('n_written')} written, "
+                  f"{scan_result.get('n_predicted', 0)} predictions logged, "
+                  f"{scan_result.get('n_features', 0)} feature rows captured "
                   f"(finnhub={scan_result.get('finnhub')})")
             store_stats["opportunity_scan"] = scan_result
         except Exception as e:

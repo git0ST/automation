@@ -68,11 +68,17 @@ def run_scan(tickers: Optional[list[str]] = None,
     # Production engine (no Streamlit dependency in these modules)
     try:
         from _stock_analysis import (technical_signal, analyst_signal,
-                                      composite_prediction)
+                                      composite_prediction, classify_avoidance)
         from _quant_score import compute_quant_score
         from _advanced_technicals import compute_all_technicals
     except Exception as e:
         return {"error": f"engine import failed: {e}"}
+
+    # Rich feature-store capture (degrades gracefully if data_lake unavailable)
+    try:
+        from shared.data_lake import build_scan_feature_row, write_scan_features
+    except Exception:
+        build_scan_feature_row = write_scan_features = None
 
     tickers = tickers or DEFAULT_UNIVERSE
     scan_id = str(uuid.uuid4())
@@ -95,6 +101,7 @@ def run_scan(tickers: Optional[list[str]] = None,
         strategy_finder = None
 
     rows = []
+    feature_rows = []     # rich ML-ready rows for the data-lake scan feature store
     errors = 0
     for ticker in tickers:
         try:
@@ -159,6 +166,28 @@ def run_scan(tickers: Optional[list[str]] = None,
                 srs=current_srs,
                 realized_vol_annual=realized_vol_annual,
             )
+
+            # Capture the model's FULL per-ticker view into the rich feature
+            # store (features now; forward-return labels joined later for ML).
+            if build_scan_feature_row is not None:
+                try:
+                    av = classify_avoidance(
+                        direction=pred["direction"], confidence=pred["confidence"],
+                        quant_score=quant["composite_score"],
+                        quant_grade=quant["composite_grade"],
+                        rsi_14=rsi_14, srs=current_srs,
+                    )
+                    feature_rows.append(build_scan_feature_row(
+                        ticker=ticker, sector=None, price=price, chg_1d=chg_1d,
+                        ret_3m=ret_3m, ret_6m=ret_6m, ret_12m=ret_12m, rsi_14=rsi_14,
+                        sma_20=sma_20, sma_50=sma_50, sma_200=sma_200,
+                        realized_vol_annual=realized_vol_annual,
+                        advanced=advanced, fundamentals=fin, quant=quant,
+                        prediction=pred, avoidance=av,
+                        regime=current_regime, srs=current_srs, ts=scanned_at,
+                    ))
+                except Exception:
+                    pass
 
             strategies = []
             if strategy_finder:
@@ -240,11 +269,20 @@ def run_scan(tickers: Optional[list[str]] = None,
     except Exception:
         pass
 
+    # Persist the rich feature rows to the data-lake scan feature store (ML corpus)
+    n_features = 0
+    if write_scan_features is not None and feature_rows:
+        try:
+            n_features = write_scan_features(feature_rows)
+        except Exception:
+            n_features = 0
+
     return {
         "scan_id":     scan_id,
         "n_scanned":   len(rows),
         "n_written":   written,
         "n_predicted": logged,
+        "n_features":  n_features,
         "errors":      errors,
         "finnhub":     finnhub_ready,
     }

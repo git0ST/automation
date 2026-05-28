@@ -139,6 +139,15 @@ def _ticker_feature_row(
     from intelligence.market_router import classify_ticker
     mtype = classify_ticker(ticker)
 
+    # ── Calendar features (cheap seasonality signals) ─────────────────────────
+    dow = hour_utc = None
+    try:
+        _dt = datetime.fromisoformat(ts)
+        dow = _dt.weekday()          # 0=Mon … 6=Sun
+        hour_utc = _dt.hour
+    except Exception:
+        pass
+
     # ── Price momentum ────────────────────────────────────────────────────────
     price    = market_data.get("price")
     chg_1d   = market_data.get("change_pct")
@@ -192,6 +201,9 @@ def _ticker_feature_row(
         "ts":           ts,
         "ticker":       ticker,
         "market_type":  mtype,
+        # Calendar
+        "dow":          dow,
+        "hour_utc":     hour_utc,
         # Price
         "price":        price,
         "chg_1d":       chg_1d,
@@ -302,6 +314,143 @@ def load_feature_store(days: int = 30) -> list[dict]:
     rows = []
     files = sorted(_SNAP_DIR.glob("features_*.jsonl.gz"), reverse=True)[:days]
     for f in files:
+        try:
+            with gzip.open(f, "rt", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        rows.append(json.loads(line))
+        except Exception:
+            continue
+    return rows
+
+
+# ── Rich scan feature store (the model's FULL per-ticker view) ────────────────
+# The opportunity scan computes the richest per-ticker view in the system —
+# full technicals, 5-factor quant scores, raw fundamentals, the model's own
+# calibrated prediction + horizon + avoidance, and the macro/regime context.
+# Capturing it (with entry price + timestamp) turns the data lake into a proper
+# supervised dataset: features now, forward-return labels joined later.
+
+def _num(x):
+    """Coerce to float or None — keeps the store clean for pandas/sklearn."""
+    try:
+        if x is None:
+            return None
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_scan_feature_row(ticker: str, sector: str | None,
+                           price: float, chg_1d: float,
+                           ret_3m, ret_6m, ret_12m, rsi_14,
+                           sma_20, sma_50, sma_200,
+                           realized_vol_annual,
+                           advanced: dict, fundamentals: dict,
+                           quant: dict, prediction: dict,
+                           avoidance: dict,
+                           regime, srs, ts: str) -> dict:
+    """Flatten the scan's full per-ticker computation into one ML-ready row.
+
+    Every field is numeric, categorical, or null. `ts`+`ticker`+`price` let a
+    later job join forward returns as labels (see learning_loop.correlate_outcomes
+    for the same date-anchored approach).
+    """
+    adv  = advanced or {}
+    macd = adv.get("macd") or {}
+    bb   = adv.get("bbands") or {}
+    adx  = adv.get("adx") or {}
+    vwap = adv.get("vwap") or {}
+    fin  = fundamentals or {}
+    fac  = (quant or {}).get("factors") or {}
+
+    def fscore(name):
+        return _num((fac.get(name) or {}).get("score"))
+
+    return {
+        # ── Identity / context ───────────────────────────────────────────────
+        "ts":            ts,
+        "ticker":        ticker,
+        "sector":        sector or "",
+        "regime":        regime,
+        "srs":           _num(srs),
+        # ── Price / momentum ─────────────────────────────────────────────────
+        "price":         _num(price),
+        "chg_1d":        _num(chg_1d),
+        "ret_3m":        _num(ret_3m),
+        "ret_6m":        _num(ret_6m),
+        "ret_12m":       _num(ret_12m),
+        "rsi_14":        _num(rsi_14),
+        "vs_sma_20":     _num((price / sma_20 - 1) * 100) if sma_20 else None,
+        "vs_sma_50":     _num((price / sma_50 - 1) * 100) if sma_50 else None,
+        "vs_sma_200":    _num((price / sma_200 - 1) * 100) if sma_200 else None,
+        "realized_vol":  _num(realized_vol_annual),
+        # ── Advanced technicals ──────────────────────────────────────────────
+        "macd_cross":    macd.get("cross"),
+        "bb_signal":     bb.get("signal"),
+        "adx":           _num(adx.get("adx")),
+        "adx_dir":       adx.get("direction"),
+        "vwap_signal":   vwap.get("signal"),
+        # ── Raw fundamentals ─────────────────────────────────────────────────
+        "pe":            _num(fin.get("peExclExtraAnnual") or fin.get("peNormalizedAnnual")),
+        "pb":            _num(fin.get("pbAnnual")),
+        "roe":           _num(fin.get("roeTTM") or fin.get("roeRfy")),
+        "rev_growth":    _num(fin.get("revenueGrowthTTMYoy") or fin.get("revenueGrowth5Y")),
+        "eps_growth":    _num(fin.get("epsGrowthTTMYoy") or fin.get("epsGrowth5Y")),
+        "gross_margin":  _num(fin.get("grossMarginTTM") or fin.get("grossMarginAnnual")),
+        "op_margin":     _num(fin.get("operatingMarginTTM") or fin.get("operatingMarginAnnual")),
+        # ── 5-factor quant scores ────────────────────────────────────────────
+        "quant_score":   _num((quant or {}).get("composite_score")),
+        "quant_grade":   (quant or {}).get("composite_grade"),
+        "f_value":       fscore("value"),
+        "f_growth":      fscore("growth"),
+        "f_profit":      fscore("profit"),
+        "f_momentum":    fscore("momentum"),
+        "f_revisions":   fscore("revisions"),
+        # ── Model's own calibrated view (meta-features) ──────────────────────
+        "pred_direction":      (prediction or {}).get("direction"),
+        "pred_confidence":     _num((prediction or {}).get("confidence")),
+        "pred_raw_confidence": _num((prediction or {}).get("raw_confidence")),
+        "pred_agreement":      _num((prediction or {}).get("agreement")),
+        "pred_horizon":        (prediction or {}).get("horizon"),
+        "pred_vol_regime":     (prediction or {}).get("vol_regime"),
+        "pred_srs_mult":       _num((prediction or {}).get("srs_mult")),
+        "pred_vol_mult":       _num((prediction or {}).get("vol_mult")),
+        # ── Avoidance (don't-invest screen) ──────────────────────────────────
+        "avoid_level":    (avoidance or {}).get("level"),
+        "avoid_severity": _num((avoidance or {}).get("severity")),
+    }
+
+
+def write_scan_features(rows: list[dict]) -> int:
+    """Append rich scan feature rows to today's scan feature store.
+
+    Format: ~/.intl_snapshots/scan_features_YYYYMMDD.jsonl.gz (append-only).
+    Grows ~99 tickers × 3 runs/day into a labeled-able ML training corpus.
+    """
+    if not rows:
+        return 0
+    _SNAP_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().strftime("%Y%m%d")
+    path = _SNAP_DIR / f"scan_features_{today}.jsonl.gz"
+    n = 0
+    try:
+        with gzip.open(path, "at", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, default=str) + "\n")
+                n += 1
+    except Exception as e:
+        print(f"[data_lake] scan feature write failed: {e}")
+    return n
+
+
+def load_scan_features(days: int = 60) -> list[dict]:
+    """Load rich scan feature rows from the last N daily files (pandas-ready)."""
+    if not _SNAP_DIR.exists():
+        return []
+    rows = []
+    for f in sorted(_SNAP_DIR.glob("scan_features_*.jsonl.gz"), reverse=True)[:days]:
         try:
             with gzip.open(f, "rt", encoding="utf-8") as fh:
                 for line in fh:
