@@ -21,8 +21,12 @@ echo "── INTL offline mirror ───────────────�
 echo "Repo:   $ROOT"
 echo "Remote: ${REMOTE:-<none>}"
 
-# Unpushed files (uses the local origin/main tracking ref — works offline)
-mapfile -t CHANGED < <(git -C "$ROOT" diff --name-only origin/main..main 2>/dev/null || true)
+# Unpushed files (uses the local origin/main tracking ref — works offline).
+# Portable array build (macOS ships bash 3.2, which lacks `mapfile`).
+CHANGED=()
+while IFS= read -r _line; do
+  [ -n "$_line" ] && CHANGED+=("$_line")
+done < <(git -C "$ROOT" diff --name-only origin/main..main 2>/dev/null || true)
 
 UP="$DESK/automation-upload"
 rm -rf "$UP"; mkdir -p "$UP"
