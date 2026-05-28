@@ -8,7 +8,9 @@
 set -euo pipefail
 
 PYTHON="/Users/shivamthakur/anaconda3/envs/automation/bin/python"
-ROOT="/Users/shivamthakur/Desktop/Automation"
+# Self-locating: derive ROOT from this script's own path so moving the repo
+# never breaks the cron again (no hardcoded directory).
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT/logs"
 LOG="$LOG_DIR/digest_$(date +%Y-%m-%d).log"
 RUN_AI="${1:-}"
