@@ -286,15 +286,23 @@ def _render_todays_setups():
         strategies = r.get("strategies") or []
         strat_names = ", ".join(s.get("name", "") for s in strategies[:2]) if strategies else None
 
-        from _components import TICKER_META
+        from _components import TICKER_META, get_logo_url
         meta = TICKER_META.get(ticker, {})
         name = meta.get("name", ticker)
+        logo_url = get_logo_url(ticker)
+        logo_img = (
+            f"<img src='{logo_url}' style='width:24px;height:24px;border-radius:5px;"
+            f"background:#fff;padding:2px;object-fit:contain;flex-shrink:0' "
+            f"onerror=\"this.style.display='none'\">"
+            if logo_url else ""
+        )
 
         with st.container():
             cols = st.columns([1, 1, 1, 1, 1, 1, 1])
             cols[0].markdown(
-                f"<div style='font-weight:700;font-size:16px'>{ticker}</div>"
-                f"<div style='font-size:10px;color:#8b93a7'>{name[:18]}</div>",
+                f"<div style='display:flex;align-items:center;gap:7px'>{logo_img}"
+                f"<div><div style='font-weight:700;font-size:15px'>{ticker}</div>"
+                f"<div style='font-size:10px;color:#8b93a7'>{name[:16]}</div></div></div>",
                 unsafe_allow_html=True,
             )
             cols[1].markdown(

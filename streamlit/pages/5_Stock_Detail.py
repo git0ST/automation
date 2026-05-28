@@ -110,19 +110,39 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-    # Ticker input
+    # Ticker search — by symbol OR company name, with live preview (same engine
+    # as the global command bar). Selecting a result loads it in place.
     col_input, col_period = st.columns([3, 1])
     with col_input:
-        ticker = st.text_input("Ticker symbol",
-                               value=st.session_state.get("detail_ticker", "NVDA"),
-                               placeholder="e.g. NVDA, AAPL, TSLA").strip().upper()
-        st.session_state["detail_ticker"] = ticker
+        sd_query = st.text_input(
+            "Find a ticker",
+            placeholder="Search by symbol or name — NVDA · Apple · Bitcoin…",
+            key="sd_search_q",
+        )
     with col_period:
         period = st.selectbox("History", ["3mo", "6mo", "1y", "2y", "5y"], index=2)
 
+    # Live preview rows (rendered full-width below to avoid nested columns).
+    from _terminal_chrome import render_search_results
+    render_search_results(sd_query, key_prefix="sd_search",
+                          session_key="detail_ticker", navigate_to=None)
+
+    # Raw fallback: still allow analyzing any symbol that isn't in our index.
+    raw = (sd_query or "").strip().upper()
+    if raw and 1 <= len(raw) <= 6 and raw.replace("-", "").replace(".", "").isalnum() \
+            and raw != st.session_state.get("detail_ticker"):
+        if st.button(f"↗ Analyze {raw} directly", key="sd_raw_go"):
+            st.session_state["detail_ticker"] = raw
+            st.rerun()
+
+    ticker = st.session_state.get("detail_ticker", "NVDA")
+
     if not ticker:
-        st.info("Enter a ticker symbol to analyse.")
+        st.info("Search for a ticker or company above to analyse.")
         return
+
+    # Show which ticker is currently loaded (search box is for switching)
+    st.caption(f"Showing **{ticker}** · search above to switch.")
 
     # Load data in parallel-ish (caches help here)
     with st.spinner(f"Loading {ticker} data…"):

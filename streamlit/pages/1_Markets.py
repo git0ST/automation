@@ -326,35 +326,32 @@ def _render_compare_chart(data: dict, period: str):
 
 
 def _render_top_movers(data: dict):
-    """Top winners + losers with full company names + logos."""
+    """Top winners + losers as interactive cards (logo · name · hover chart · analyze)."""
     movers = sorted(data.items(), key=lambda x: x[1].get("chg_1d", 0), reverse=True)
+    gainers = movers[:5]
+    losers  = movers[-5:][::-1]
 
-    def _mover_row(tk, d, positive):
-        meta = TICKER_META.get(tk, {})
-        name = meta.get("name", tk)
-        chg = d.get("chg_1d", 0)
-        color = "#00d68f" if positive else "#ff5773"
-        return (
-            f'<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:14px;'
-            f'align-items:center;padding:12px 14px;background:#131825;border:1px solid #1f2937;'
-            f'border-radius:6px;margin-bottom:8px">'
-            f'  <div style="font-weight:700;font-size:13px;color:#e6e9f0;min-width:60px">{tk}</div>'
-            f'  <div style="color:#8b93a7;font-size:12px;'
-            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{name}</div>'
-            f'  <div style="font-family:IBM Plex Mono,monospace;font-size:13px;color:#e6e9f0">${d["price"]:,.2f}</div>'
-            f'  <div style="color:{color};font-family:IBM Plex Mono,monospace;font-weight:700;font-size:13px;min-width:70px;text-align:right">{chg:+.2f}%</div>'
-            f'</div>'
-        )
+    # Full close-price series for hover sparklines (same source as Cards tab)
+    spark = {tk: d.get("close", []) for tk, d in data.items()}
+
+    def _to_card_data(pairs):
+        return {
+            tk: {"price": d.get("price", 0),
+                 "change_pct": d.get("chg_1d", 0),
+                 "volume": d.get("volume")}
+            for tk, d in pairs
+        }
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("##### 🚀 Top Gainers (1D)")
-        for tk, d in movers[:5]:
-            st.markdown(_mover_row(tk, d, True), unsafe_allow_html=True)
+        # cols=1 → one card per row; key_prefix avoids collision with Cards tab
+        render_ticker_grid(_to_card_data(gainers), cols=1,
+                           sparkline_data=spark, key_prefix="mv_gain")
     with c2:
         st.markdown("##### 📉 Top Decliners (1D)")
-        for tk, d in movers[-5:][::-1]:
-            st.markdown(_mover_row(tk, d, False), unsafe_allow_html=True)
+        render_ticker_grid(_to_card_data(losers), cols=1,
+                           sparkline_data=spark, key_prefix="mv_lose")
 
 
 main()

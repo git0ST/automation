@@ -392,25 +392,34 @@ def _search_tickers(query: str, limit: int = 6) -> list[dict]:
     return [e for _, e in results[:limit]]
 
 
-def _render_command_bar():
-    """Live search command bar — Google-style autocomplete preview.
+# Type → accent colour mapping for search-result chips
+_SEARCH_TYPE_COLOR = {
+    "stock": "#4da6ff", "equity": "#4da6ff", "index": "#b47cf5",
+    "crypto": "#18d4a8", "forex": "#e8a435",
+    "etf": "#26c2d6", "bond": "#26c2d6", "commodity": "#f07030",
+}
 
-    As the user types, matching tickers appear immediately below the input
-    with logo · symbol · name · type chip · price/change. Clicking ↗ opens
-    the ticker in Stock Detail.
+
+def render_search_results(query: str, key_prefix: str,
+                          session_key: str = "detail_ticker",
+                          navigate_to: str | None = "pages/5_Stock_Detail.py",
+                          limit: int = 7) -> bool:
+    """Render live Google-style preview rows for a search `query`.
+
+    Searchable by ticker symbol OR company name. Each row shows
+    logo · symbol · type chip · name · price/change. On ↗ select it writes the
+    chosen ticker to st.session_state[session_key], then either switches to
+    `navigate_to` (cross-page jump) or reruns in place when navigate_to is None.
+
+    Reused by the global command bar and any page-level ticker search so every
+    search box in the system behaves identically.
+
+    Returns True if any results were rendered.
     """
-    query = st.text_input(
-        "Search",
-        placeholder="🔍  Search ticker or company — NVDA · Apple · Bitcoin…",
-        key="_search_q",
-        label_visibility="collapsed",
-    )
-
     if not query or not query.strip():
-        return
+        return False
 
-    results = _search_tickers(query.strip(), limit=6)
-
+    results = _search_tickers(query.strip(), limit=limit)
     if not results:
         st.markdown(
             f'<div style="color:#5a6378;font-size:11px;padding:4px 2px">'
@@ -418,14 +427,7 @@ def _render_command_bar():
             f'try a symbol or partial name</div>',
             unsafe_allow_html=True,
         )
-        return
-
-    # Type → accent colour mapping
-    _TYPE_COLOR = {
-        "stock": "#4da6ff", "equity": "#4da6ff", "index": "#b47cf5",
-        "crypto": "#18d4a8", "forex": "#e8a435",
-        "etf": "#26c2d6", "bond": "#26c2d6", "commodity": "#f07030",
-    }
+        return False
 
     for i, entry in enumerate(results):
         tk       = entry["ticker"]
@@ -455,7 +457,7 @@ def _render_command_bar():
                 f'{tk[:2]}</span>'
             )
 
-        tc    = _TYPE_COLOR.get(mtype, "#8b93a7")
+        tc    = _SEARCH_TYPE_COLOR.get(mtype, "#8b93a7")
         gc    = "#00d68f" if chg >= 0 else "#ff5773"
         arrow = "▲" if chg >= 0 else "▼"
         price_str = f"${price:,.2f}" if price > 0 else "—"
@@ -488,10 +490,26 @@ def _render_command_bar():
                 unsafe_allow_html=True,
             )
         with col_btn:
-            if st.button("↗", key=f"_srch_{tk}_{i}", help=f"Open {tk} in Deep Dive",
-                         use_container_width=True):
-                st.session_state["detail_ticker"] = tk
-                st.switch_page("pages/5_Stock_Detail.py")
+            if st.button("↗", key=f"{key_prefix}_{tk}_{i}",
+                         help=f"Analyze {tk}", use_container_width=True):
+                st.session_state[session_key] = tk
+                if navigate_to:
+                    st.switch_page(navigate_to)
+                else:
+                    st.rerun()
+    return True
+
+
+def _render_command_bar():
+    """Global live search command bar — shown on every page via render_chrome."""
+    query = st.text_input(
+        "Search",
+        placeholder="🔍  Search ticker or company — NVDA · Apple · Bitcoin…",
+        key="_search_q",
+        label_visibility="collapsed",
+    )
+    render_search_results(query, key_prefix="_cmd",
+                          navigate_to="pages/5_Stock_Detail.py")
 
 
 def render_kpi_row(items: list[dict]) -> None:

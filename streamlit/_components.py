@@ -365,11 +365,15 @@ def ticker_card(ticker: str, price: float, change_pct: float,
 
 
 def render_ticker_grid(ticker_data: dict, cols: int = 4,
-                       sparkline_data: dict | None = None) -> None:
+                       sparkline_data: dict | None = None,
+                       key_prefix: str = "tcard") -> None:
     """Render a responsive grid of interactive ticker cards.
 
     ticker_data: {ticker: {price, change_pct, volume}}
     sparkline_data: {ticker: [price, price, ...]} — shown on card hover
+    key_prefix: namespaces the per-card buttons so the same ticker can appear
+        in more than one grid on a page (e.g. Cards tab + Top Movers) without a
+        StreamlitDuplicateElementKey collision.
     Clicking a card navigates to Stock Detail via session state.
     """
     global _CARD_CSS_INJECTED
@@ -395,7 +399,7 @@ def render_ticker_grid(ticker_data: dict, cols: int = 4,
                 # Invisible-width button captures the click and navigates
                 if st.button(
                     "↗",
-                    key=f"tcard_{ticker}_{row_start}",
+                    key=f"{key_prefix}_{ticker}_{row_start}",
                     help=f"Open {ticker} in Stock Detail",
                     use_container_width=True,
                 ):
