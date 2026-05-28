@@ -390,9 +390,11 @@ div[data-testid="stDataFrame"] tbody tr:hover td { background: #1a2034 !importan
 /* Hide Streamlit chrome */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
+[data-testid="stHeader"]       { display: none !important; }
 [data-testid="stToolbar"]      { display: none !important; }
 [data-testid="stDecoration"]   { display: none !important; }
 [data-testid="stStatusWidget"] { display: none !important; }
+[data-testid="stAppViewBlockContainer"] { padding-top: 0.5rem !important; }
 
 /* ═══════════ SIDEBAR — always-open navigation rail ═══════════ */
 /* Hiding the collapse/expand toggle entirely is more reliable than
