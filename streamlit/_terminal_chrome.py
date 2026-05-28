@@ -305,31 +305,194 @@ def _render_tape():
     )
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _build_search_index() -> list[dict]:
+    """Build a searchable index of all known tickers.
+
+    Combines TICKER_META (static, 60+ tickers) + Supabase market_snapshots (live).
+    Each entry: {ticker, name, type, sector, logo_sym, price, change}
+    """
+    from _components import TICKER_META
+
+    index: dict[str, dict] = {}
+
+    # 1. Static base from TICKER_META
+    for tk, meta in TICKER_META.items():
+        index[tk] = {
+            "ticker":   tk,
+            "name":     meta.get("name", tk),
+            "type":     meta.get("type", "stock"),
+            "sector":   meta.get("sector", ""),
+            "logo_sym": meta.get("logo") or (tk if meta.get("type") in ("stock", "etf") else None),
+            "price":    0.0,
+            "change":   0.0,
+        }
+
+    # 2. Enrich / extend with live Supabase market_snapshots
+    try:
+        from _data import load_market_snapshots
+        rows, _ = load_market_snapshots(limit=500)
+        if rows:
+            for r in rows:
+                tk = (r.get("ticker") or "").strip()
+                if not tk:
+                    continue
+                price  = float(r.get("price") or r.get("last_price") or 0)
+                change = float(r.get("change_pct") or r.get("pct_change") or 0)
+                if tk in index:
+                    index[tk]["price"]  = price
+                    index[tk]["change"] = change
+                else:
+                    mtype = (r.get("type") or "equity").lower()
+                    if mtype == "equity":
+                        mtype = "stock"
+                    index[tk] = {
+                        "ticker":   tk,
+                        "name":     r.get("name") or tk,
+                        "type":     mtype,
+                        "sector":   "",
+                        "logo_sym": tk if mtype == "stock" else None,
+                        "price":    price,
+                        "change":   change,
+                    }
+    except Exception:
+        pass
+
+    return list(index.values())
+
+
+def _search_tickers(query: str, limit: int = 6) -> list[dict]:
+    """Score-rank the search index against a user query.
+
+    Scoring (higher = better match):
+      exact ticker match  100
+      ticker starts-with   80
+      name starts-with     60
+      ticker contains      40
+      name contains        20
+    """
+    q      = query.strip().upper()
+    q_low  = query.strip().lower()
+    if not q:
+        return []
+
+    results: list[tuple[int, dict]] = []
+    for entry in _build_search_index():
+        tk        = entry["ticker"].upper()
+        name_low  = entry["name"].lower()
+        if   tk == q:                    score = 100
+        elif tk.startswith(q):           score = 80
+        elif name_low.startswith(q_low): score = 60
+        elif q in tk:                    score = 40
+        elif q_low in name_low:          score = 20
+        else:                            continue
+        results.append((score, entry))
+
+    results.sort(key=lambda x: -x[0])
+    return [e for _, e in results[:limit]]
+
+
 def _render_command_bar():
-    """Universal ticker lookup. Type ticker → jump to Stock Detail."""
-    col_cmd, col_help = st.columns([5, 1])
-    with col_cmd:
-        query = st.text_input(
-            "Quick lookup",
-            value=st.session_state.get("_cmd", ""),
-            placeholder="Type a ticker (NVDA, AAPL, ^GSPC, BTC-USD) and press Enter →",
-            key="_cmd_input",
-            label_visibility="collapsed",
-        )
-    with col_help:
+    """Live search command bar — Google-style autocomplete preview.
+
+    As the user types, matching tickers appear immediately below the input
+    with logo · symbol · name · type chip · price/change. Clicking ↗ opens
+    the ticker in Stock Detail.
+    """
+    query = st.text_input(
+        "Search",
+        placeholder="🔍  Search ticker or company — NVDA · Apple · Bitcoin…",
+        key="_search_q",
+        label_visibility="collapsed",
+    )
+
+    if not query or not query.strip():
+        return
+
+    results = _search_tickers(query.strip(), limit=6)
+
+    if not results:
         st.markdown(
-            '<div style="color:#5a6378;font-size:10px;text-align:right;padding-top:8px">'
-            '⌨️ Type ticker + Enter</div>',
+            f'<div style="color:#5a6378;font-size:11px;padding:4px 2px">'
+            f'No match for <b style="color:#8b93a7">{query.strip()}</b> — '
+            f'try a symbol or partial name</div>',
             unsafe_allow_html=True,
         )
+        return
 
-    if query and query.strip():
-        sym = query.strip().upper()
-        # Heuristic: looks like a ticker, jump to Stock Detail
-        if 1 <= len(sym) <= 12 and any(c.isalpha() for c in sym):
-            st.session_state["detail_ticker"] = sym
-            st.session_state["_cmd"] = ""
-            st.switch_page("pages/5_Stock_Detail.py")
+    # Type → accent colour mapping
+    _TYPE_COLOR = {
+        "stock": "#4da6ff", "equity": "#4da6ff", "index": "#b47cf5",
+        "crypto": "#18d4a8", "forex": "#e8a435",
+        "etf": "#26c2d6", "bond": "#26c2d6", "commodity": "#f07030",
+    }
+
+    for i, entry in enumerate(results):
+        tk       = entry["ticker"]
+        name     = entry["name"]
+        mtype    = entry["type"]
+        price    = entry["price"]
+        chg      = entry["change"]
+        logo_sym = entry.get("logo_sym")
+
+        # Logo / fallback initials block
+        if logo_sym:
+            logo_html = (
+                f'<img src="https://financialmodelingprep.com/image-stock/{logo_sym}.png"'
+                f' width="28" height="28" style="border-radius:4px;object-fit:cover;'
+                f'flex-shrink:0" onerror="this.style.display=\'none\';'
+                f'this.nextSibling.style.display=\'flex\'">'
+                f'<span style="display:none;width:28px;height:28px;border-radius:4px;'
+                f'background:#1e2d4a;align-items:center;justify-content:center;'
+                f'font-size:10px;font-weight:700;color:#4da6ff;flex-shrink:0">'
+                f'{tk[:2]}</span>'
+            )
+        else:
+            logo_html = (
+                f'<span style="display:flex;width:28px;height:28px;border-radius:4px;'
+                f'background:#1a2034;align-items:center;justify-content:center;'
+                f'font-size:10px;font-weight:700;color:#8b93a7;flex-shrink:0">'
+                f'{tk[:2]}</span>'
+            )
+
+        tc    = _TYPE_COLOR.get(mtype, "#8b93a7")
+        gc    = "#00d68f" if chg >= 0 else "#ff5773"
+        arrow = "▲" if chg >= 0 else "▼"
+        price_str = f"${price:,.2f}" if price > 0 else "—"
+        chg_str   = f"{arrow}{abs(chg):.2f}%" if price > 0 else ""
+
+        col_info, col_btn = st.columns([11, 1])
+        with col_info:
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;'
+                f'background:#0c1220;border:1px solid #1f2937;border-radius:6px;'
+                f'margin-bottom:3px">'
+                f'  <div style="display:flex;align-items:center;flex-shrink:0">{logo_html}</div>'
+                f'  <div style="flex:1;min-width:0">'
+                f'    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+                f'      <span style="font-family:IBM Plex Mono,monospace;font-size:13px;'
+                f'font-weight:700;color:#e6e9f0">{tk}</span>'
+                f'      <span style="font-size:9px;font-weight:700;letter-spacing:.1em;'
+                f'color:{tc};background:{tc}18;border:1px solid {tc}44;'
+                f'padding:0 5px;border-radius:3px;flex-shrink:0">{mtype.upper()}</span>'
+                f'    </div>'
+                f'    <div style="font-size:11px;color:#8b93a7;white-space:nowrap;'
+                f'overflow:hidden;text-overflow:ellipsis;max-width:280px">{name}</div>'
+                f'  </div>'
+                f'  <div style="text-align:right;flex-shrink:0;min-width:70px">'
+                f'    <div style="font-family:IBM Plex Mono,monospace;font-size:12px;'
+                f'color:#e6e9f0;font-weight:600">{price_str}</div>'
+                f'    <div style="font-size:11px;color:{gc};font-weight:600">{chg_str}</div>'
+                f'  </div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            if st.button("↗", key=f"_srch_{tk}_{i}", help=f"Open {tk} in Deep Dive",
+                         use_container_width=True):
+                st.session_state["detail_ticker"] = tk
+                st.session_state["_search_q"] = ""
+                st.switch_page("pages/5_Stock_Detail.py")
 
 
 def render_kpi_row(items: list[dict]) -> None:
