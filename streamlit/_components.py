@@ -114,105 +114,216 @@ def get_logo_url(ticker: str) -> str | None:
 
 # ── Ticker card with logo, name, price, % change ─────────────────────────────
 
-def ticker_card(ticker: str, price: float, change_pct: float,
-                volume: int | None = None, extra: str = "") -> str:
-    """Return HTML for a professional ticker card.
+def _sparkline_svg(prices: list[float], color: str,
+                   width: int = 220, height: int = 44) -> str:
+    """Generate an inline SVG polyline from a price series."""
+    if not prices or len(prices) < 2:
+        return ""
+    mn, mx = min(prices), max(prices)
+    rng = mx - mn or 1
+    n = len(prices)
+    pts = " ".join(
+        f"{i / (n - 1) * width:.1f},{height - (p - mn) / rng * (height - 4):.1f}"
+        for i, p in enumerate(prices)
+    )
+    # Filled area under the line
+    fill_pts = (
+        f"0,{height} "
+        + pts
+        + f" {width},{height}"
+    )
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible">'
+        f'<defs><linearGradient id="sg{abs(hash(pts))%9999}" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{color}" stop-opacity="0.18"/>'
+        f'<stop offset="100%" stop-color="{color}" stop-opacity="0"/>'
+        f'</linearGradient></defs>'
+        f'<polygon points="{fill_pts}" fill="url(#sg{abs(hash(pts))%9999})"/>'
+        f'<polyline points="{pts}" fill="none" stroke="{color}" '
+        f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        f'</svg>'
+    )
 
-    Renders: [logo] TICKER · Name
-             $price
-             ▲/▼ change %
+
+# Injected once per page load — CSS for card hover effects
+_CARD_CSS = """<style>
+.intl-tcard {
+  background:#131825;border:1px solid #1f2937;border-radius:8px;
+  padding:14px 16px;cursor:pointer;
+  transition:border-color .15s,transform .15s,box-shadow .15s;
+  position:relative;overflow:hidden;
+}
+.intl-tcard:hover {
+  border-color:#2a3447;
+  transform:translateY(-2px);
+  box-shadow:0 6px 24px rgba(0,0,0,.45);
+}
+.intl-tcard .tc-spark {
+  overflow:hidden;
+  max-height:0;opacity:0;
+  transition:max-height .22s ease,opacity .22s ease;
+  margin-top:0;
+}
+.intl-tcard:hover .tc-spark {
+  max-height:52px;opacity:1;
+  margin-top:8px;
+}
+.intl-tcard .tc-analyze {
+  opacity:0;
+  transition:opacity .15s;
+  font-size:10px;color:#4c8bf5;letter-spacing:.06em;
+  position:absolute;top:10px;right:12px;font-weight:600;
+}
+.intl-tcard:hover .tc-analyze { opacity:1; }
+</style>"""
+_CARD_CSS_INJECTED = False
+
+
+def ticker_card(ticker: str, price: float, change_pct: float,
+                volume: int | None = None, extra: str = "",
+                sparkline_prices: list[float] | None = None) -> str:
+    """Return HTML for an interactive ticker card.
+
+    Features:
+    - Logo (38px) + Ticker and Name at equal visual weight
+    - Price + % change + volume
+    - Sparkline chart that fades in on hover (pure CSS, no JS)
+    - ↗ Analyze hint appears on hover (navigation handled by caller button)
     """
+    global _CARD_CSS_INJECTED
+    css = ""
+    if not _CARD_CSS_INJECTED:
+        css = _CARD_CSS
+        _CARD_CSS_INJECTED = True
+
     meta = TICKER_META.get(ticker, {})
     name = meta.get("name", ticker)
     color = "#00d68f" if change_pct >= 0 else "#ff5773"
     arrow = "▲" if change_pct >= 0 else "▼"
     logo_url = get_logo_url(ticker)
+    sector = meta.get("sector", meta.get("type", ""))
 
-    # Logo cell: image OR emoji OR colored letter block
+    # ── Logo ──────────────────────────────────────────────────────────────────
     if logo_url:
         logo_html = (
             f'<img src="{logo_url}" alt="{ticker}" '
-            f'style="width:28px;height:28px;border-radius:6px;background:white;padding:2px;'
+            f'style="width:38px;height:38px;border-radius:7px;background:#fff;padding:3px;'
             f'object-fit:contain;flex-shrink:0" '
-            f'onerror="this.outerHTML=\'<div style=&quot;width:28px;height:28px;border-radius:6px;'
-            f'background:linear-gradient(135deg,#1f2937,#2a3447);display:flex;align-items:center;'
-            f'justify-content:center;font-weight:700;font-size:12px;color:#8b93a7;'
-            f'flex-shrink:0&quot;>{ticker[:2]}</div>\'">'
+            f'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
+            f'<div style="display:none;width:38px;height:38px;border-radius:7px;'
+            f'background:linear-gradient(135deg,#1f2937,#2a3447);align-items:center;'
+            f'justify-content:center;font-weight:700;font-size:13px;color:#8b93a7;flex-shrink:0">'
+            f'{ticker[:2]}</div>'
         )
     elif meta.get("country"):
         logo_html = (
-            f'<div style="width:28px;height:28px;display:flex;align-items:center;'
-            f'justify-content:center;font-size:20px;flex-shrink:0">'
+            f'<div style="width:38px;height:38px;display:flex;align-items:center;'
+            f'justify-content:center;font-size:26px;flex-shrink:0">'
             f'{meta["country"]}</div>'
         )
     elif meta.get("icon"):
         logo_html = (
-            f'<div style="width:28px;height:28px;border-radius:6px;background:#1a2034;'
+            f'<div style="width:38px;height:38px;border-radius:7px;background:#1a2034;'
             f'display:flex;align-items:center;justify-content:center;'
-            f'font-weight:700;color:#ffaa00;flex-shrink:0">'
+            f'font-size:18px;font-weight:700;color:#ffaa00;flex-shrink:0">'
             f'{meta["icon"]}</div>'
         )
     else:
         logo_html = (
-            f'<div style="width:28px;height:28px;border-radius:6px;'
+            f'<div style="width:38px;height:38px;border-radius:7px;'
             f'background:linear-gradient(135deg,#1f2937,#2a3447);'
             f'display:flex;align-items:center;justify-content:center;'
-            f'font-weight:700;font-size:11px;color:#8b93a7;flex-shrink:0">'
+            f'font-weight:700;font-size:13px;color:#8b93a7;flex-shrink:0">'
             f'{ticker[:2]}</div>'
         )
 
+    # ── Sector chip ───────────────────────────────────────────────────────────
+    sector_html = (
+        f'<span style="font-size:8px;padding:1px 5px;border-radius:3px;'
+        f'background:#1a2034;border:1px solid #2a3447;color:#5a6378;'
+        f'letter-spacing:.06em;text-transform:uppercase;white-space:nowrap">'
+        f'{sector}</span>'
+    ) if sector else ""
+
+    # ── Volume ────────────────────────────────────────────────────────────────
     volume_html = ""
     if volume:
-        vol_str = _format_volume(volume)
         volume_html = (
-            f'<div style="font-size:10px;color:#5a6378;margin-top:6px;'
-            f'font-family:IBM Plex Mono,monospace">Vol {vol_str}</div>'
+            f'<span style="font-size:10px;color:#5a6378;font-family:IBM Plex Mono,monospace">'
+            f'Vol {_format_volume(volume)}</span>'
         )
 
-    return f"""
-    <div style="background:#131825;border:1px solid #1f2937;border-radius:8px;
-                padding:14px 16px;margin-bottom:10px;transition:border-color 0.15s">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;min-width:0">
-        {logo_html}
-        <div style="min-width:0;flex:1">
-          <div style="font-weight:600;font-size:13px;color:#e6e9f0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ticker}</div>
-          <div style="font-size:10px;color:#8b93a7;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{name}</div>
-        </div>
-      </div>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;
-                  font-weight:600;color:#e6e9f0;line-height:1.1;
-                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-        ${price:,.2f}
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
-        <span style="color:{color};font-family:'IBM Plex Mono',monospace;
-                     font-size:12px;font-weight:600">{arrow} {change_pct:+.2f}%</span>
-        {extra}
-      </div>
-      {volume_html}
-    </div>
+    # ── Sparkline (shown on hover via CSS) ────────────────────────────────────
+    spark_html = ""
+    if sparkline_prices and len(sparkline_prices) >= 2:
+        spark_svg = _sparkline_svg(sparkline_prices, color)
+        spark_html = f'<div class="tc-spark">{spark_svg}</div>'
+
+    return (
+        f'{css}'
+        f'<div class="intl-tcard">'
+        f'  <div class="tc-analyze">↗ Analyze</div>'
+        f'  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+        f'    {logo_html}'
+        f'    <div style="min-width:0;flex:1">'
+        f'      <div style="font-size:13px;font-weight:700;color:#e6e9f0;'
+        f'letter-spacing:.03em;line-height:1.2">{ticker}</div>'
+        f'      <div style="font-size:13px;font-weight:400;color:#8b93a7;'
+        f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2">{name}</div>'
+        f'    </div>'
+        f'    {sector_html}'
+        f'  </div>'
+        f'  <div style="font-family:IBM Plex Mono,monospace;font-size:20px;'
+        f'font-weight:600;color:#e6e9f0;line-height:1.1">${price:,.2f}</div>'
+        f'  <div style="display:flex;align-items:center;gap:10px;margin-top:5px;flex-wrap:wrap">'
+        f'    <span style="color:{color};font-family:IBM Plex Mono,monospace;'
+        f'font-size:13px;font-weight:600">{arrow} {change_pct:+.2f}%</span>'
+        f'    {volume_html}'
+        f'    {extra}'
+        f'  </div>'
+        f'  {spark_html}'
+        f'</div>'
+    )
+
+
+def render_ticker_grid(ticker_data: dict, cols: int = 4,
+                       sparkline_data: dict | None = None) -> None:
+    """Render a responsive grid of interactive ticker cards.
+
+    ticker_data: {ticker: {price, change_pct, volume}}
+    sparkline_data: {ticker: [price, price, ...]} — shown on card hover
+    Clicking a card navigates to Stock Detail via session state.
     """
+    global _CARD_CSS_INJECTED
+    _CARD_CSS_INJECTED = False  # reset so CSS is injected for first card each render
 
-
-def render_ticker_grid(ticker_data: dict, cols: int = 4) -> None:
-    """Render a grid of ticker cards with N columns. ticker_data: {ticker: {price, change_pct, volume}}."""
     items = list(ticker_data.items())
     for row_start in range(0, len(items), cols):
         row_items = items[row_start:row_start + cols]
         columns = st.columns(cols)
         for col, (ticker, d) in zip(columns, row_items):
             with col:
+                spark = (sparkline_data or {}).get(ticker)
                 st.markdown(
                     ticker_card(
                         ticker,
                         d.get("price", 0),
                         d.get("change_pct", 0),
                         volume=d.get("volume"),
+                        sparkline_prices=spark,
                     ),
                     unsafe_allow_html=True,
                 )
+                # Invisible-width button captures the click and navigates
+                if st.button(
+                    "↗",
+                    key=f"tcard_{ticker}_{row_start}",
+                    help=f"Open {ticker} in Stock Detail",
+                    use_container_width=True,
+                ):
+                    st.session_state["detail_ticker"] = ticker
+                    st.switch_page("pages/5_Stock_Detail.py")
 
 
 # ── Source badges for news feed ──────────────────────────────────────────────

@@ -106,7 +106,6 @@ def main():
     ])
 
     with tab_cards:
-        # Professional ticker cards with logos
         card_data = {
             ticker: {
                 "price":      d["price"],
@@ -115,7 +114,9 @@ def main():
             }
             for ticker, d in data.items()
         }
-        render_ticker_grid(card_data, cols=4)
+        # Pass full close-price series for hover sparklines
+        spark_data = {ticker: d.get("close", []) for ticker, d in data.items()}
+        render_ticker_grid(card_data, cols=4, sparkline_data=spark_data)
 
     with tab_heat:
         _render_heatmap(data, sector)
