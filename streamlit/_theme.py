@@ -399,85 +399,34 @@ footer { visibility: hidden; }
 [data-testid="stStatusWidget"] { display: none !important; }
 [data-testid="stAppViewBlockContainer"] { padding-top: 0.5rem !important; }
 
-/* ═══════════ SIDEBAR — collapsible, with a logo toggle ═══════════ */
-/* The native collapse/expand stays ENABLED (so the rail opens & closes at
-   will). We just restyle Streamlit's toggle into a small frosted-white "logo"
-   button pinned top-left. If a future Streamlit renames a testid the toggle
-   still works natively — it just falls back to the default chevron. */
-
-/* Expand control — shown by Streamlit ONLY when the rail is collapsed. We do
-   NOT force its display (forcing it made the ☰ linger behind the open sidebar,
-   unclickable, and flicker on every page rerun). We only pin + lift it so when
-   it does appear it floats top-left above everything. */
+/* ═══════════ SIDEBAR — toggled by a custom floating logo + 'h' key ═══════════
+   A persistent floating button (injected by _terminal_chrome._render_sidebar_
+   toggle) and the 'h' shortcut drive the rail by programmatically clicking
+   Streamlit's native collapse/expand controls. We HIDE those native chevrons
+   but keep them in the DOM and programmatically clickable — element.click()
+   ignores pointer-events / opacity, so the toggle stays reliable in every
+   state and never disappears or flickers. */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"],
-[data-testid="stExpandSidebarButton"] {
-  position: fixed !important;
-  top: 10px !important;
-  left: 10px !important;
-  z-index: 2147483000 !important;   /* always above the rail + content */
-}
-
-/* When the rail is OPEN, its collapse button lives at the top of the sidebar
-   header (same top-left spot). Keep that header — and its button — above the
-   sidebar body so the toggle is always clickable. */
-[data-testid="stSidebarHeader"] {
-  position: relative !important;
-  z-index: 2147483000 !important;
-  min-height: 0 !important;
-}
-
-/* Logo-button look for BOTH controls (expand when collapsed + collapse when
-   expanded). Complementary frosted white against the dark theme. */
-[data-testid="stSidebarCollapsedControl"] button,
-[data-testid="collapsedControl"] button,
-[data-testid="stExpandSidebarButton"] button,
+[data-testid="stExpandSidebarButton"],
 [data-testid="stSidebarCollapseButton"],
 [data-testid="stSidebarHeader"] button {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 36px !important;
-  height: 36px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
   padding: 0 !important;
-  border-radius: 9px !important;
-  background: rgba(245, 247, 250, 0.10) !important;
-  border: 1px solid rgba(245, 247, 250, 0.22) !important;
-  color: #f5f7fa !important;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45) !important;
-  transition: background .15s ease, border-color .15s ease, transform .15s ease;
-}
-[data-testid="stSidebarCollapsedControl"] button:hover,
-[data-testid="collapsedControl"] button:hover,
-[data-testid="stExpandSidebarButton"] button:hover,
-[data-testid="stSidebarCollapseButton"]:hover,
-[data-testid="stSidebarHeader"] button:hover {
-  background: rgba(245, 247, 250, 0.20) !important;
-  border-color: rgba(245, 247, 250, 0.45) !important;
-  transform: translateY(-1px);
+  margin: 0 !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
 }
 
-/* Swap Streamlit's chevron SVG for a clean glyph: ☰ to open, « to close */
-[data-testid="stSidebarCollapsedControl"] button svg,
-[data-testid="collapsedControl"] button svg,
-[data-testid="stExpandSidebarButton"] button svg,
-[data-testid="stSidebarCollapseButton"] svg,
-[data-testid="stSidebarHeader"] button svg {
-  display: none !important;
-}
-[data-testid="stSidebarCollapsedControl"] button::before,
-[data-testid="collapsedControl"] button::before,
-[data-testid="stExpandSidebarButton"] button::before {
-  content: "\2630";   /* ☰ menu — bring the rail into view */
-  font-size: 16px; line-height: 1; color: #f5f7fa;
-}
-[data-testid="stSidebarCollapseButton"]::before,
-[data-testid="stSidebarHeader"] button::before {
-  content: "\00AB";   /* « — send the rail away */
-  font-size: 16px; line-height: 1; color: #f5f7fa;
-}
-
-/* Comfortable expanded width — NO !important so native collapse still works */
+/* Comfortable expanded width — no !important so native collapse still works */
 [data-testid="stSidebar"] { min-width: 256px; }
 [data-testid="stSidebarContent"] { visibility: visible; }
 </style>

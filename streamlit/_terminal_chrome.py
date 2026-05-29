@@ -254,9 +254,96 @@ def render_chrome(current_page: str = "") -> None:
     Call at the top of every page right after apply_theme().
     """
     _require_auth()          # gate first — nothing renders until authenticated
+    _render_sidebar_toggle() # persistent floating logo + 'h' shortcut
     _render_sidebar_nav(current_page)
     _render_tape()
     _render_command_bar()
+
+
+def _render_sidebar_toggle() -> None:
+    """Persistent floating logo toggle for the sidebar + an 'h' keyboard shortcut.
+
+    Injected through a 0-height component iframe whose script reaches into the
+    PARENT document (same-origin srcdoc). The toggle button is appended to the
+    parent <body> — OUTSIDE Streamlit's React root — so it survives every page
+    rerun and never disappears. Clicking it (or pressing 'h') determines the
+    rail's open/closed state and clicks Streamlit's matching native control, so
+    toggling stays reliable even though the native chevrons are hidden via CSS.
+    """
+    import streamlit.components.v1 as components
+    components.html(
+        """
+<script>
+(function () {
+  var doc = window.parent.document;
+
+  function sidebarOpen() {
+    var sb = doc.querySelector('[data-testid="stSidebar"]');
+    if (!sb) return false;
+    var aria = sb.getAttribute('aria-expanded');
+    if (aria !== null) return aria === 'true';
+    return sb.getBoundingClientRect().width > 60;   // fallback
+  }
+  function clickEl(el) {
+    if (!el) return false;
+    var b = (el.tagName === 'BUTTON') ? el : (el.querySelector('button') || el);
+    b.click();
+    return true;
+  }
+  function toggleSidebar() {
+    var open = sidebarOpen();
+    var collapse = doc.querySelector('[data-testid="stSidebarCollapseButton"]')
+                || doc.querySelector('[data-testid="stSidebarHeader"] button');
+    var expand = doc.querySelector('[data-testid="stSidebarCollapsedControl"]')
+              || doc.querySelector('[data-testid="collapsedControl"]')
+              || doc.querySelector('[data-testid="stExpandSidebarButton"]');
+    clickEl(open ? collapse : expand) || clickEl(collapse) || clickEl(expand);
+  }
+
+  // ── Floating logo button (inject once; persists across reruns) ──────────
+  var btn = doc.getElementById('intl-sb-toggle');
+  if (!btn) {
+    btn = doc.createElement('button');
+    btn.id = 'intl-sb-toggle';
+    btn.type = 'button';
+    btn.title = 'Toggle navigation  ·  press h';
+    btn.setAttribute('aria-label', 'Toggle navigation');
+    btn.innerHTML = '&#9776;';                       // ☰
+    var s = btn.style;
+    s.position='fixed'; s.top='10px'; s.left='10px'; s.zIndex='2147483600';
+    s.width='38px'; s.height='38px'; s.display='flex';
+    s.alignItems='center'; s.justifyContent='center';
+    s.borderRadius='10px'; s.cursor='pointer'; s.fontSize='17px'; s.lineHeight='1';
+    s.color='#f5f7fa'; s.background='rgba(245,247,250,0.12)';
+    s.border='1px solid rgba(245,247,250,0.30)';
+    s.boxShadow='0 2px 14px rgba(0,0,0,0.55)';
+    s.backdropFilter='blur(6px)'; s.webkitBackdropFilter='blur(6px)';
+    s.transition='background .15s, border-color .15s, transform .15s';
+    btn.onmouseenter=function(){ s.background='rgba(245,247,250,0.22)';
+      s.borderColor='rgba(245,247,250,0.5)'; s.transform='translateY(-1px)'; };
+    btn.onmouseleave=function(){ s.background='rgba(245,247,250,0.12)';
+      s.borderColor='rgba(245,247,250,0.30)'; s.transform='none'; };
+    btn.onclick=toggleSidebar;
+    doc.body.appendChild(btn);
+  }
+
+  // ── 'h' keyboard shortcut (dedupe so reruns don't stack listeners) ──────
+  if (doc.__intlKeyHandler)
+    doc.removeEventListener('keydown', doc.__intlKeyHandler, true);
+  doc.__intlKeyHandler = function (e) {
+    if (e.key !== 'h' && e.key !== 'H') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var t = e.target, tag = (t && t.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable)) return;
+    e.preventDefault();
+    toggleSidebar();
+  };
+  doc.addEventListener('keydown', doc.__intlKeyHandler, true);
+})();
+</script>
+        """,
+        height=0,
+    )
 
 
 def _fmt_price(price: float, mtype: str) -> str:
