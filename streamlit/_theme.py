@@ -405,18 +405,26 @@ footer { visibility: hidden; }
    button pinned top-left. If a future Streamlit renames a testid the toggle
    still works natively — it just falls back to the default chevron. */
 
-/* Expand control (visible when the sidebar is collapsed) — pinned top-left,
-   above the (hidden) header, always clickable to bring the rail back. */
+/* Expand control — shown by Streamlit ONLY when the rail is collapsed. We do
+   NOT force its display (forcing it made the ☰ linger behind the open sidebar,
+   unclickable, and flicker on every page rerun). We only pin + lift it so when
+   it does appear it floats top-left above everything. */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"],
 [data-testid="stExpandSidebarButton"] {
-  display: flex !important;
-  visibility: visible !important;
-  opacity: 1 !important;
   position: fixed !important;
   top: 10px !important;
   left: 10px !important;
-  z-index: 1000 !important;
+  z-index: 2147483000 !important;   /* always above the rail + content */
+}
+
+/* When the rail is OPEN, its collapse button lives at the top of the sidebar
+   header (same top-left spot). Keep that header — and its button — above the
+   sidebar body so the toggle is always clickable. */
+[data-testid="stSidebarHeader"] {
+  position: relative !important;
+  z-index: 2147483000 !important;
+  min-height: 0 !important;
 }
 
 /* Logo-button look for BOTH controls (expand when collapsed + collapse when
