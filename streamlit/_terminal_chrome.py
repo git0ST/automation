@@ -227,37 +227,50 @@ def _require_auth() -> None:
     if st.session_state.get("_authed"):
         return
 
-    # Clean gate: hide the (empty) default sidebar + any native toggle chevron
-    # so the login screen is just the password prompt.
+    # ── Clean, CENTERED gate ───────────────────────────────────────────────
+    # Hide the sidebar + every toggle/floating control and let the main area go
+    # full width, so the gate is just a centered lock card + password — no rail,
+    # no offset, no tape/command bar (those aren't rendered before this stop).
     st.markdown(
         "<style>"
         "[data-testid='stSidebar'],"
         "[data-testid='stSidebarCollapsedControl'],"
         "[data-testid='collapsedControl'],"
-        "[data-testid='stExpandSidebarButton'] { display: none !important; }"
+        "[data-testid='stExpandSidebarButton'],"
         "#intl-sb-toggle { display: none !important; }"
+        "[data-testid='stMain'] .block-container,"
+        "section.main .block-container {"
+        "  max-width: 100% !important; padding-top: 0 !important; }"
         "</style>",
         unsafe_allow_html=True,
     )
 
-    if not secret_pw:
-        st.markdown("## 🔒 INTL Terminal — locked")
-        st.warning(
-            "App password is not configured, so access is blocked (secure default). "
-            "Set **APP_PASSWORD** in Streamlit secrets "
-            "(*Manage app → Settings → Secrets*), then reload."
+    st.markdown("<div style='height:15vh'></div>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 1.1, 1])
+    with mid:
+        st.markdown(
+            "<div style='text-align:center;line-height:1.25'>"
+            "<div style='font-size:46px'>🔒</div>"
+            "<div style='font-size:22px;font-weight:700;color:#e6e9f0;"
+            "letter-spacing:.05em;margin-top:8px'>INTL TERMINAL</div>"
+            "<div style='font-size:13px;color:#8b93a7;margin:6px 0 16px'>"
+            "Private terminal — sign in to continue.</div></div>",
+            unsafe_allow_html=True,
         )
-        st.stop()
-
-    st.markdown("## 🔒 INTL Terminal")
-    st.caption("Private terminal — sign in to continue.")
-    pw = st.text_input("Password", type="password", key="_auth_pw",
-                       label_visibility="collapsed", placeholder="Password")
-    if pw:
-        if hmac.compare_digest(str(pw), str(secret_pw)):
-            st.session_state["_authed"] = True
-            st.rerun()
-        st.error("Incorrect password.")
+        if not secret_pw:
+            st.warning(
+                "App password isn't configured, so access is blocked (secure "
+                "default). Set **APP_PASSWORD** in Streamlit secrets "
+                "(*Manage app → Settings → Secrets*), then reload."
+            )
+            st.stop()
+        pw = st.text_input("Password", type="password", key="_auth_pw",
+                           label_visibility="collapsed", placeholder="Password")
+        if pw:
+            if hmac.compare_digest(str(pw), str(secret_pw)):
+                st.session_state["_authed"] = True
+                st.rerun()
+            st.error("Incorrect password.")
     st.stop()
 
 

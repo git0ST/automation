@@ -35,6 +35,20 @@ REGIME_COLORS = {
 def apply_theme() -> None:
     """Inject the INTL design system CSS. Idempotent."""
     st.markdown(_CSS, unsafe_allow_html=True)
+    # First-paint anti-flash: until signed in, hide the rail + toggles right
+    # here (apply_theme runs before the sidebar paints), so the old nav doesn't
+    # flash before the login gate replaces it.
+    if not st.session_state.get("_authed"):
+        st.markdown(
+            "<style>"
+            "[data-testid='stSidebar'],"
+            "[data-testid='stSidebarCollapsedControl'],"
+            "[data-testid='collapsedControl'],"
+            "[data-testid='stExpandSidebarButton'],"
+            "#intl-sb-toggle { display: none !important; }"
+            "</style>",
+            unsafe_allow_html=True,
+        )
 
 
 _CSS = """
