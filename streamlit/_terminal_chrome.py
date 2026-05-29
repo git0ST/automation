@@ -227,6 +227,19 @@ def _require_auth() -> None:
     if st.session_state.get("_authed"):
         return
 
+    # Clean gate: hide the (empty) default sidebar + any native toggle chevron
+    # so the login screen is just the password prompt.
+    st.markdown(
+        "<style>"
+        "[data-testid='stSidebar'],"
+        "[data-testid='stSidebarCollapsedControl'],"
+        "[data-testid='collapsedControl'],"
+        "[data-testid='stExpandSidebarButton'] { display: none !important; }"
+        "#intl-sb-toggle { display: none !important; }"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+
     if not secret_pw:
         st.markdown("## 🔒 INTL Terminal — locked")
         st.warning(
