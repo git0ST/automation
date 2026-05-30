@@ -21,8 +21,8 @@ import streamlit as st
 st.set_page_config(page_title="Risk & VaR · INTL", page_icon="🎯", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme import apply_theme, COLORS, status_pill
-from _data  import supabase_client, fetch_fred_live
+from _theme import apply_theme, COLORS
+from _data import supabase_client
 apply_theme()
 from _terminal_chrome import render_chrome
 render_chrome("Risk")

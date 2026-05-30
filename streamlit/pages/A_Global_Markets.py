@@ -17,7 +17,7 @@ import streamlit as st
 st.set_page_config(page_title="Global Markets · INTL", page_icon="🌍", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme       import apply_theme, COLORS, status_pill
+from _theme import apply_theme, COLORS
 from _kpi_help    import DXY, EURUSD, USDJPY, MARKET_REGIME
 from shared.global_markets import REGIONS, FOREX, lookup
 apply_theme()

@@ -18,10 +18,10 @@ import streamlit as st
 st.set_page_config(page_title="Strategies · INTL", page_icon="🎲", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme           import apply_theme, COLORS, status_pill
-from _strategy_engine import (STRATEGIES, find_strategies, position_sizing,
-                                compute_levels, _grade_to_int)
+from _theme import apply_theme
+from _strategy_engine import (STRATEGIES, find_strategies, position_sizing, compute_levels)
 from _components       import TICKER_META
+from shared.scan_universe import SCAN_UNIVERSE
 apply_theme()
 from _terminal_chrome import render_chrome
 render_chrome("Strategies")
@@ -88,14 +88,6 @@ def main():
     # Universe + portfolio inputs
     col_uni, col_pv = st.columns([3, 1])
     with col_uni:
-        SCAN_UNIVERSE = [
-            "NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "AVGO", "ORCL",
-            "AMD", "INTC", "QCOM", "TSM", "MU", "ARM", "SMCI",
-            "JPM", "GS", "MS", "BAC", "V", "MA", "BLK",
-            "XOM", "CVX", "COP", "UNH", "LLY", "JNJ", "MRK", "ABBV",
-            "WMT", "COST", "HD", "MCD", "DIS", "NFLX",
-            "BA", "CAT", "GE", "RTX",
-        ]
         universe = st.multiselect(
             "Scan universe",
             SCAN_UNIVERSE, default=SCAN_UNIVERSE, max_selections=60,

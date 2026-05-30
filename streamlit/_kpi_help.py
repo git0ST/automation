@@ -272,5 +272,3 @@ ALL = {
 }
 
 
-def help_for(key: str) -> str:
-    return ALL.get(key, "")

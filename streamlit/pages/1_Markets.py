@@ -20,7 +20,7 @@ st.set_page_config(page_title="Markets · INTL", page_icon="📈", layout="wide"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _theme      import apply_theme, COLORS
-from _components import render_ticker_grid, ticker_card, TICKER_META
+from _components import render_ticker_grid
 apply_theme()
 from _terminal_chrome import render_chrome
 render_chrome("Markets")

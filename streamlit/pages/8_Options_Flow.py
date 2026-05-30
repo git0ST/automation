@@ -17,7 +17,7 @@ import streamlit as st
 st.set_page_config(page_title="Options Flow · INTL", page_icon="⚡", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme      import apply_theme, COLORS, status_pill
+from _theme import apply_theme
 from _data       import supabase_client
 from _components import TICKER_META, esc
 apply_theme()

@@ -27,15 +27,9 @@ st.set_page_config(
 # ── Apply unified theme ───────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _theme           import apply_theme, COLORS, REGIME_COLORS, status_pill
-from _terminal_chrome  import render_chrome, render_kpi_row
-from _kpi_help         import (MARKET_REGIME, SYSTEMIC_RISK, NEWS_SENTIMENT,
-                                ALPHA_SIGNALS, DATA_FRESHNESS)
-from _data             import (load_articles, load_signals, load_market_snapshots,
-                                load_regime_risk, load_market_prices, supabase_client,
-                                check_setup_status, load_weighted_sentiment,
-                                load_data_freshness)
-from _components       import (ticker_card, render_ticker_grid, news_item_card,
-                                source_badge, regime_card, TICKER_META, esc)
+from _terminal_chrome import render_chrome
+from _data import (load_signals, load_regime_risk, supabase_client, load_data_freshness)
+from _components import TICKER_META, esc
 apply_theme()
 render_chrome("overview")
 

@@ -23,12 +23,8 @@ import streamlit as st
 st.set_page_config(page_title="Opportunities · INTL", page_icon="🎯", layout="wide")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _theme              import apply_theme, COLORS, status_pill
-from _stock_analysis     import (technical_signal, sentiment_signal, analyst_signal,
-                                  sector_signal, vol_signal, composite_prediction,
-                                  classify_avoidance)
-from _advanced_technicals import compute_all_technicals
-from _quant_score        import compute_quant_score
+from _theme import apply_theme
+from _stock_analysis import classify_avoidance
 from _components         import TICKER_META
 from _data               import supabase_client
 from _opportunity_scan   import scan_universe
