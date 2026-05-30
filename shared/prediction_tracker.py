@@ -9,9 +9,12 @@ from datetime import datetime, timezone
 
 
 def _client():
-    """Supabase client — anon key for read/write (RLS allows insert)."""
+    """Supabase client — SERVICE key preferred so writes succeed under the
+    hardened RLS from migration 014 (which revoked anon INSERT on predictions).
+    Falls back to anon when the service key isn't available (e.g. running from
+    Streamlit Cloud where only ANON is in secrets — reads still work)."""
     url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
     if not url or not key:
         return None
     try:
