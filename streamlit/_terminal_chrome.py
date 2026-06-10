@@ -75,6 +75,7 @@ def _render_sidebar_nav(current_page: str = "") -> None:
         # ── SIGNALS ───────────────────────────────────────────────────────────
         st.markdown('<div class="nav-section">SIGNALS</div>', unsafe_allow_html=True)
         st.page_link("app.py",                    label="📊 Overview",     help="Regime · macro pulse · top setups")
+        st.page_link("pages/0_My_Plan.py",        label="🌱 My Plan",        help="Core-satellite plan · evidence gates · system health")
         st.page_link("pages/0_India_Invest.py",   label="💼 India Invest",   help="NIFTY 50 positional picks · quant factors · ₹ sizing")
         st.page_link("pages/0_India_Intraday.py", label="🇮🇳 India Intraday", help="NSE live setups · VWAP · ORB · RVOL · ATR stops")
         st.page_link("pages/6_Opportunities.py",  label="🎯 Setups",       help="High-conviction trade ideas ranked by confidence")
