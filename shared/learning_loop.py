@@ -14,8 +14,11 @@ from datetime import datetime, timezone, timedelta
 
 
 def _client():
+    # SERVICE key first: correlate_outcomes UPDATEs the predictions table, and
+    # there is deliberately no anon UPDATE policy (migration 014 hardening) —
+    # with the anon key those updates silently no-op and nothing ever settles.
     url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
     if not url or not key:
         return None
     try:
@@ -118,7 +121,7 @@ def correlate_outcomes(batch_limit: int = 200) -> dict:
                 max_adv = ((window.min() / base) - 1) * 100 if len(window) else None
 
                 try:
-                    client.table("predictions").update({
+                    resp = client.table("predictions").update({
                         "return_1d":     float(ret_1d)  if ret_1d  is not None else None,
                         "return_3d":     float(ret_3d)  if ret_3d  is not None else None,
                         "return_7d":     float(ret_7d)  if ret_7d  is not None else None,
@@ -127,7 +130,12 @@ def correlate_outcomes(batch_limit: int = 200) -> dict:
                         "max_adverse":   float(max_adv) if max_adv is not None else None,
                         "correlated_at": datetime.now(timezone.utc).isoformat(),
                     }).eq("id", r["id"]).execute()
-                    updated += 1
+                    # Honest count: under RLS an unauthorized UPDATE "succeeds"
+                    # but touches 0 rows — only count rows actually returned.
+                    if getattr(resp, "data", None):
+                        updated += 1
+                    else:
+                        errors += 1
                 except Exception:
                     errors += 1
         except Exception:
