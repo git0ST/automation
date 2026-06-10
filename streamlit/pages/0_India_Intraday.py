@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _theme import apply_theme
 from _strategy_engine import kelly_position_sizing
 from shared.india_market import NIFTY50, INDIA_INDICES, nse_session
+from shared import breeze_client as bz
 apply_theme()
 from _terminal_chrome import render_chrome
 render_chrome("India Intraday")
@@ -231,18 +232,30 @@ def main():
         st.title("🇮🇳 India Intraday")
         st.caption("NIFTY 50 live setups · VWAP · opening-range breakout · RVOL · "
                    "ATR stops · ¼-Kelly sizing")
+    breeze_live = bz.is_live()
     with col_s:
         phase_color = {"regular": "#00d68f", "opening_range": "#ffaa00",
                        "closing_window": "#ff8800", "pre_open": "#4da6ff",
                        "closed": "#8b93a7"}[session["phase"]]
+        src_html = ("<span style='color:#00d68f;font-weight:700'>● LIVE · Breeze</span>"
+                    if breeze_live else
+                    "<span style='color:#ffaa00'>● DELAYED · Yahoo (~1–2 min)</span>")
         st.markdown(
             f"<div style='margin-top:18px;text-align:right'>"
             f"<span style='color:{phase_color};font-weight:700;font-size:13px'>"
-            f"● NSE {session['phase'].replace('_', ' ').upper()}</span><br>"
+            f"● NSE {session['phase'].replace('_', ' ').upper()}</span> "
+            f"<span style='font-size:11px'>{src_html}</span><br>"
             f"<span style='color:#8b93a7;font-size:11px'>"
             f"{session['ist_now'].strftime('%H:%M IST')} · {session['note']}</span></div>",
             unsafe_allow_html=True,
         )
+        if bz.is_configured() and not breeze_live:
+            st.markdown(
+                f"<div style='text-align:right;font-size:10px'>"
+                f"<a href='{bz.login_url()}' target='_blank' style='color:#4c8bf5'>"
+                f"Get today's Breeze session token ↗</a> → set BREEZE_SESSION_TOKEN, restart</div>",
+                unsafe_allow_html=True,
+            )
     with col_r:
         st.write("")
         if st.button("🔄", use_container_width=True, help="Refresh (data caches 2 min)"):
@@ -284,11 +297,31 @@ def main():
                     key=lambda s: -s["confidence"])
     avoids = [s for s in setups if s["avoid"]]
 
-    c1, c2, c3, c4 = st.columns(4)
+    # Breeze live-LTP overlay: refresh displayed setups with real-time prices
+    # (yfinance bars lag ~1-2 min) and re-derive stop/target from the live LTP.
+    if breeze_live:
+        for s in (longs + shorts)[:20]:
+            q = bz.get_quote(s["ticker"])
+            if q and q.get("ltp"):
+                s["price"] = q["ltp"]
+                sp = s["stop_pct"]
+                if s["direction"] == "long":
+                    s["stop"], s["target"] = s["price"] * (1 - sp), s["price"] * (1 + 2 * sp)
+                else:
+                    s["stop"], s["target"] = s["price"] * (1 + sp), s["price"] * (1 - 2 * sp)
+
+    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 2])
     c1.metric("Scanned", len(setups))
     c2.metric("Long setups", len(longs))
     c3.metric("Short setups", len(shorts))
     c4.metric("Avoid-flagged", len(avoids))
+    with c5:
+        capital = st.number_input(
+            "Intraday capital (₹)", min_value=10_000, max_value=100_000_000,
+            value=int(st.session_state.get("india_capital", 200_000)),
+            step=25_000, key="india_capital",
+            help="Used to size trade tickets (qty = capital × ¼-Kelly ÷ price).",
+        )
 
     # Log directional calls so the learning loop scores them (horizon=intraday)
     logged = 0
@@ -314,9 +347,9 @@ def main():
         f"🚫 Avoid ({len(avoids)})",
     ])
     with tab_long:
-        _render_setups(longs, session)
+        _render_setups(longs, session, capital, breeze_live)
     with tab_short:
-        _render_setups(shorts, session)
+        _render_setups(shorts, session, capital, breeze_live)
     with tab_avoid:
         for s in avoids:
             st.markdown(
@@ -337,7 +370,8 @@ def main():
     )
 
 
-def _render_setups(items: list[dict], session: dict):
+def _render_setups(items: list[dict], session: dict, capital: float,
+                   breeze_live: bool):
     if not items:
         st.info("No setups in this direction right now.")
         return
@@ -365,6 +399,37 @@ def _render_setups(items: list[dict], session: dict):
                 f"· VWAP dev {s['vwap_dev']:+.2f}%</span>",
                 unsafe_allow_html=True,
             )
+
+            # ── Trade ticket (MIS) — sized from capital × ¼-Kelly ────────────
+            qty = 0 if s["no_trade"] else int(capital * s["kelly_pct"] / 100 / s["price"])
+            if qty >= 1:
+                action = "buy" if s["direction"] == "long" else "sell"
+                st.markdown(
+                    f"<div style='background:#0f1422;border:1px solid #1f2937;"
+                    f"border-radius:6px;padding:8px 12px;font-family:IBM Plex Mono,"
+                    f"monospace;font-size:12px;color:#c8cce0'>"
+                    f"🎫 MIS {action.upper()} <b>{qty}</b> × {sym} @ "
+                    f"₹{s['price']:,.1f} · SL ₹{s['stop']:,.1f} · "
+                    f"TGT ₹{s['target']:,.1f} · risk ≈ "
+                    f"₹{qty * abs(s['price'] - s['stop']):,.0f}</div>",
+                    unsafe_allow_html=True,
+                )
+                if breeze_live and bz.orders_enabled() and session["can_enter"]:
+                    ok = st.checkbox(f"I confirm this {action.upper()} order",
+                                     key=f"cnf_{sym}")
+                    if st.button(f"Place MIS {action.upper()} · {qty} {sym}",
+                                 key=f"ord_{sym}", disabled=not ok):
+                        r = bz.place_intraday_order(s["ticker"], action, qty,
+                                                    s["price"], confirm=ok)
+                        (st.success if r["ok"] else st.error)(
+                            f"{r['msg']}" + (f" · ID {r.get('order_id')}" if r.get("order_id") else ""))
+                        if r["ok"]:
+                            st.caption("⚠ Entry leg only — set the SL/target in "
+                                       "your broker app immediately.")
+                elif breeze_live and not bz.orders_enabled():
+                    st.caption("🔒 Order routing disabled (set BREEZE_ALLOW_ORDERS=true "
+                               "in .env to enable the button — entries always need "
+                               "a manual confirm).")
             if not session["can_enter"]:
                 st.caption(f"⏳ {session['note']}")
 
