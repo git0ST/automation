@@ -400,6 +400,20 @@ async def run_pipeline(
         except Exception as e:
             print(f"  [10] Opportunity scan skipped: {e}")
 
+        # [10b] India swing scan — the India-first portfolio layer. Logs NSE
+        # predictions + feature rows daily so India-specific calibration builds.
+        try:
+            from agents.india_runner import run_india_scan
+            print(f"  [10b] Running India swing scan (NIFTY 50)…")
+            india_result = run_india_scan()
+            print(f"    India: {india_result.get('n_scanned', 0)} scanned, "
+                  f"{india_result.get('n_predicted', 0)} predictions, "
+                  f"{india_result.get('n_features', 0)} feature rows "
+                  f"({india_result.get('regime', india_result.get('error', '?'))})")
+            store_stats["india_scan"] = india_result
+        except Exception as e:
+            print(f"  [10b] India scan skipped: {e}")
+
         # [11] Intraday bars — sub-daily resolution (market hours only)
         intraday_items = []
         try:
