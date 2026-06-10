@@ -520,6 +520,24 @@ async def run_pipeline(
         except Exception as e:
             print(f"  [15] Self-improvement cycle skipped: {e}")
 
+        # [16] Auto-mode paper trading — act on our own predictions virtually:
+        # manage stops/targets/time-stops, open new entries, adapt to regime
+        # shifts (de-risk on flips / VIX spikes, hit-rate-driven entry bar).
+        try:
+            from shared.paper_trader import run_paper_cycle
+            print(f"  [16] Paper trading cycle…")
+            paper = run_paper_cycle()
+            print(f"    Paper: +{paper['opened']} opened, {paper['closed']} closed "
+                  f"{paper['closed_pnl'] or ''} · {paper['open_now']} open · "
+                  f"bar {paper['threshold']:.0f}%"
+                  f"{' · DE-RISK' if paper['derisk'] else ''} "
+                  f"[{paper['backend']}]")
+            for ev in paper.get("events", []):
+                print(f"    ⚡ {ev}")
+            store_stats["paper"] = paper
+        except Exception as e:
+            print(f"  [16] Paper trading skipped: {e}")
+
     return {
         "items":        scored,
         "market_data":  market_data,

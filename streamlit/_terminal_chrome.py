@@ -89,6 +89,7 @@ def _render_sidebar_nav(current_page: str = "") -> None:
         # ── PORTFOLIO ─────────────────────────────────────────────────────────
         st.markdown('<div class="nav-section">PORTFOLIO</div>', unsafe_allow_html=True)
         st.page_link("pages/4_Portfolio.py",      label="💼 Positions",     help="Holdings · P&L · exposure")
+        st.page_link("pages/B_Paper_Trading.py",  label="🧪 Paper Trading", help="Auto-mode virtual book · adaptive risk")
         st.page_link("pages/2_Risk.py",           label="🛡 Risk",          help="VaR · drawdown · correlation")
 
         # ── RESEARCH ──────────────────────────────────────────────────────────
