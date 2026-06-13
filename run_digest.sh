@@ -5,20 +5,46 @@
 # Cron / launchd: runs every 5 min via the FastAPI server (preferred)
 #                 or manually trigger a full run with this script.
 
-set -euo pipefail
+set -uo pipefail
 
-PYTHON="/Users/shivamthakur/anaconda3/envs/automation/bin/python"
-# Self-locating: derive ROOT from this script's own path so moving the repo
-# never breaks the cron again (no hardcoded directory).
+# Prefer an internal-disk env if present (reliable); fall back to the legacy
+# SSD-symlinked path. Override with INTL_PYTHON in the launchd plist.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT/logs"
 LOG="$LOG_DIR/digest_$(date +%Y-%m-%d).log"
 RUN_AI="${1:-}"
-
 mkdir -p "$LOG_DIR"
+
+PYTHON="${INTL_PYTHON:-}"
+for cand in \
+    "$PYTHON" \
+    "$HOME/miniforge3/envs/automation/bin/python" \
+    "$HOME/anaconda3/envs/automation/bin/python" \
+    "/Volumes/SSD1TB/anaconda3/envs/automation/bin/python"; do
+  [ -n "$cand" ] && [ -x "$cand" ] && { PYTHON="$cand"; break; }
+done
 
 echo "──────────────────────────────────────────────────────────" >> "$LOG"
 echo "$(date '+%Y-%m-%d %H:%M:%S')  Pipeline run started (RUN_AI=${RUN_AI})" >> "$LOG"
+
+# Mount-aware guard: if the interpreter is missing (SSD unplugged), try to
+# mount the SSD once, then FAIL LOUDLY into a dedicated alert log so a silent
+# data gap can never recur unnoticed.
+if [ -z "$PYTHON" ] || [ ! -x "$PYTHON" ]; then
+  diskutil mount SSD1TB >/dev/null 2>&1 || true
+  sleep 3
+  for cand in "/Volumes/SSD1TB/anaconda3/envs/automation/bin/python" \
+              "$HOME/anaconda3/envs/automation/bin/python"; do
+    [ -x "$cand" ] && { PYTHON="$cand"; break; }
+  done
+fi
+if [ -z "$PYTHON" ] || [ ! -x "$PYTHON" ]; then
+  MSG="$(date '+%Y-%m-%d %H:%M:%S')  CRON ABORTED — python interpreter unreachable (SSD unmounted?). DATA GAP this run."
+  echo "$MSG" | tee -a "$LOG" >> "$LOG_DIR/CRON_ALERT.log"
+  exit 70
+fi
+echo "  using interpreter: $PYTHON" >> "$LOG"
+set -e
 
 "$PYTHON" - <<EOF >> "$LOG" 2>&1
 import asyncio, sys
